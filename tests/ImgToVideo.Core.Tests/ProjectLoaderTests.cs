@@ -41,7 +41,58 @@ public class ProjectLoaderTests : IDisposable
 
         var inventory = ProjectLoader.Load(_project.Path);
 
-        Assert.Contains(inventory.Issues, i => i.Code == "IMAGE_UNRECOGNIZED");
+        Assert.Contains(inventory.Issues,
+            i => i.Code == "IMAGE_UNRECOGNIZED" && i.Message.Contains("S{scene}_{index}"));
+    }
+
+    [Fact]
+    public void Caps_unrecognized_warnings_with_summary()
+    {
+        for (var i = 1; i <= 7; i++)
+        {
+            _project.WriteImage($"junk{i}.png", 100, 100);
+        }
+        _project.WriteSrt();
+        _project.WriteAudio();
+
+        var inventory = ProjectLoader.Load(_project.Path);
+
+        Assert.Equal(5, inventory.Issues.Count(i => i.Code == "IMAGE_UNRECOGNIZED"));
+        Assert.Contains(inventory.Issues,
+            i => i.Code == "IMAGE_UNRECOGNIZED_MORE" && i.Message.Contains("2 more"));
+    }
+
+    [Fact]
+    public void Explains_extension_mismatch_when_no_allowed_extension()
+    {
+        File.WriteAllBytes(
+            System.IO.Path.Combine(_project.Path, "images", "S01_01.jpg"),
+            TestImages.Jpeg(2304, 1296));
+        File.WriteAllBytes(
+            System.IO.Path.Combine(_project.Path, "images", "S01_02.jpg"),
+            TestImages.Jpeg(2304, 1296));
+        _project.WriteSrt();
+        _project.WriteAudio();
+
+        var inventory = ProjectLoader.Load(_project.Path);
+
+        Assert.Contains(inventory.Issues, i =>
+            i.Code == "IMAGES_EXTENSION" &&
+            i.Message.Contains(".jpg") &&
+            i.Message.Contains(".png"));
+        Assert.Contains(inventory.Issues, i => i.Code == "IMAGES_NONE" && i.Severity == ValidationSeverity.Error);
+    }
+
+    [Fact]
+    public void Errors_when_images_folder_is_empty()
+    {
+        Directory.CreateDirectory(System.IO.Path.Combine(_project.Path, "images"));
+        _project.WriteSrt();
+        _project.WriteAudio();
+
+        var inventory = ProjectLoader.Load(_project.Path);
+
+        Assert.Contains(inventory.Issues, i => i.Code == "IMAGES_EMPTY" && i.Severity == ValidationSeverity.Error);
     }
 
     [Fact]

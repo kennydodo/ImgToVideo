@@ -171,18 +171,53 @@ public static class ProjectLoader
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var parser = new ImageFilenameParser(naming);
-        var files = Directory.EnumerateFiles(imagesDir)
-            .Where(f => allowedExtensions.Contains(Path.GetExtension(f)))
+        var allFiles = Directory.EnumerateFiles(imagesDir)
             .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
             .ToList();
 
+        if (allFiles.Count == 0)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "IMAGES_EMPTY",
+                "The \"images\" folder is empty — it contains no files at all."));
+            return ([], []);
+        }
+
+        var files = allFiles
+            .Where(f => allowedExtensions.Contains(Path.GetExtension(f)))
+            .ToList();
+
+        if (files.Count == 0)
+        {
+            var presentExtensions = allFiles
+                .Select(f => Path.GetExtension(f) ?? string.Empty)
+                .Where(e => e.Length > 0)
+                .Select(e => e.ToLowerInvariant())
+                .Distinct()
+                .OrderBy(e => e, StringComparer.Ordinal)
+                .ToList();
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Warning, "IMAGES_EXTENSION",
+                $"Found {allFiles.Count} files in \"images\" but none has an allowed extension " +
+                $"({string.Join(", ", naming.ImageExtensions)}). Extensions present: " +
+                $"{string.Join(", ", presentExtensions)}. " +
+                "Add them in Settings > File naming > Extensions."));
+        }
+
+        const int MaxShownUnrecognized = 5;
+        var unrecognizedShown = 0;
         foreach (var file in files)
         {
             if (!parser.TryParse(file, out var parsed) || parsed is null)
             {
-                issues.Add(new ValidationIssue(
-                    ValidationSeverity.Warning, "IMAGE_UNRECOGNIZED",
-                    $"\"{Path.GetFileName(file)}\" does not match the naming pattern and was ignored."));
+                unrecognizedShown++;
+                if (unrecognizedShown <= MaxShownUnrecognized)
+                {
+                    issues.Add(new ValidationIssue(
+                        ValidationSeverity.Warning, "IMAGE_UNRECOGNIZED",
+                        $"\"{Path.GetFileName(file)}\" does not match the naming pattern " +
+                        "(expected S{scene}_{index}[_CODE].png, e.g. S08_02_PR.png) and was ignored."));
+                }
             }
             else if (parsed.HasUnknownCode)
             {
@@ -190,6 +225,13 @@ public static class ProjectLoader
                     ValidationSeverity.Warning, "IMAGE_UNKNOWN_CODE",
                     $"\"{Path.GetFileName(file)}\" has an unknown motion code; motion will be auto-selected."));
             }
+        }
+
+        if (unrecognizedShown > MaxShownUnrecognized)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Warning, "IMAGE_UNRECOGNIZED_MORE",
+                $"…and {unrecognizedShown - MaxShownUnrecognized} more files were ignored for the same reason."));
         }
 
         var images = new List<ImageInfo>();
@@ -224,7 +266,9 @@ public static class ProjectLoader
         {
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Error, "IMAGES_NONE",
-                "No correctly named images were found in the \"images\" folder."));
+                "No correctly named images were found in the \"images\" folder. " +
+                "Names must look like S01_01.png or S08_02_PR.png " +
+                "(pattern: S{scene}_{index}[_CODE].png with CODE = ST/ZI/ZO/PL/PR/PV)."));
         }
 
         var groups = images
