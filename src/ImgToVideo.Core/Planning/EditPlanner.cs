@@ -133,32 +133,33 @@ public static class EditPlanner
         {
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Warning, "SCENE_COUNT_MISMATCH",
-                $"Scene inference found {windows.Count} scenes but images define {groups.Count}; " +
-                $"pairing by order — consider a scenes.json override."));
+                $"Narration suggests {windows.Count} scenes but images define {groups.Count}; " +
+                "images were distributed evenly across the audio duration. " +
+                "Provide scenes.json to control which narration range each scene covers."));
+            return DistributeEvenly(groups, audioDurationSeconds);
         }
 
         var tiled = TileWindows(windows, audioDurationSeconds, issues, warnOnAdjustment: false);
-        var count = Math.Min(tiled.Count, groups.Count);
-
-        for (var i = count; i < tiled.Count; i++)
-        {
-            issues.Add(new ValidationIssue(
-                ValidationSeverity.Error, "SCENE_NO_IMAGES",
-                $"Inferred scene {i + 1} has no matching images (images define {groups.Count} scenes)."));
-        }
-
-        for (var i = count; i < groups.Count; i++)
-        {
-            issues.Add(new ValidationIssue(
-                ValidationSeverity.Error, "IMAGES_NO_SCENE",
-                $"Scene {groups[i].SceneId} has {groups[i].Images.Count} images but narration has no matching scene."));
-        }
-
-        var inputs = new List<ScenePlanInput>(count);
-        for (var i = 0; i < count; i++)
+        var inputs = new List<ScenePlanInput>(tiled.Count);
+        for (var i = 0; i < tiled.Count; i++)
         {
             inputs.Add(new ScenePlanInput(
                 groups[i].SceneId, tiled[i].StartSeconds, tiled[i].EndSeconds, groups[i].Images));
+        }
+
+        return inputs;
+    }
+
+    private static List<ScenePlanInput> DistributeEvenly(
+        IReadOnlyList<SceneImageGroup> groups, double audioDurationSeconds)
+    {
+        var count = groups.Count;
+        var inputs = new List<ScenePlanInput>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var start = audioDurationSeconds * i / count;
+            var end = audioDurationSeconds * (i + 1) / count;
+            inputs.Add(new ScenePlanInput(groups[i].SceneId, start, end, groups[i].Images));
         }
 
         return inputs;

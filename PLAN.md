@@ -229,6 +229,13 @@ present. `scenes.json` is the exact override; its schema gets validation too (ov
 out-of-audio-range → WARNING/ERROR). Sentence-grouping will misfire on odd punctuation — by
 design it fails safe (produces scenes + a WARNING).
 
+**Sparse-image fallback:** when the inferred window count differs from the image scene count,
+the planner no longer blocks — image scene groups are **distributed evenly across the audio
+duration** (WARNING `SCENE_COUNT_MISMATCH` + pointer to scenes.json). This makes sparse
+illustration projects (a handful of chapter images over a long script) produce a watchable rough
+cut by default; each image's motion then spans its whole hold window. Provide `scenes.json` when
+you want narration-anchored timing.
+
 ## 8. Validation catalog
 
 | Severity | Checks |

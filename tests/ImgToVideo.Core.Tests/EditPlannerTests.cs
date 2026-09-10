@@ -94,19 +94,29 @@ public class EditPlannerTests : IDisposable
     }
 
     [Fact]
-    public void Image_groups_without_scene_windows_error()
+    public void Mismatched_scene_counts_distribute_images_evenly()
     {
-        _project.WriteImage("S01_01.png", 2304, 1296);
-        _project.WriteImage("S02_01.png", 2304, 1296);
-        _project.WriteImage("S03_01.png", 2304, 1296);
+        _project.WriteImage("S01_01_SCN_ST.png", 2304, 1296);
+        _project.WriteImage("S02_01_SCN_ZI.png", 2304, 1296);
+        _project.WriteImage("S03_01_SCN_ST.png", 2304, 1296);
         _project.WriteSrt();
         _project.WriteAudio();
 
         var result = Plan();
 
-        Assert.False(result.Success);
+        Assert.True(result.Success);
+        var timeline = result.Timeline!;
+        Assert.Equal(3, timeline.Scenes.Count);
+
+        Assert.Equal(0, timeline.Scenes[0].StartFrame);
+        Assert.Equal(200, timeline.Scenes[0].EndFrame);
+        Assert.Equal(200, timeline.Scenes[1].StartFrame);
+        Assert.Equal(400, timeline.Scenes[1].EndFrame);
+        Assert.Equal(400, timeline.Scenes[2].StartFrame);
+        Assert.Equal(600, timeline.Scenes[2].EndFrame);
+
         Assert.Contains(result.Issues, i => i.Code == "SCENE_COUNT_MISMATCH");
-        Assert.Contains(result.Issues, i => i.Code == "IMAGES_NO_SCENE");
+        Assert.DoesNotContain(result.Issues, i => i.Severity == ValidationSeverity.Error);
     }
 
     [Fact]
