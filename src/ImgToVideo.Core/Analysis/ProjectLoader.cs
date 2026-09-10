@@ -1,0 +1,251 @@
+using ImgToVideo.Core.Imaging;
+using ImgToVideo.Core.Models;
+using ImgToVideo.Core.Options;
+using ImgToVideo.Core.Parsing;
+
+namespace ImgToVideo.Core.Analysis;
+
+public sealed class ProjectInventory
+{
+    public string ProjectFolder { get; init; } = string.Empty;
+    public string? AudioFilePath { get; init; }
+    public string? SrtFilePath { get; init; }
+    public List<ImageInfo> AllImages { get; init; } = new();
+    public List<SceneImageGroup> SceneGroups { get; init; } = new();
+    public List<SubtitleBlock> Subtitles { get; init; } = new();
+    public IReadOnlyList<SceneWindow>? SceneMapWindows { get; init; }
+    public List<ValidationIssue> Issues { get; init; } = new();
+}
+
+public static class ProjectLoader
+{
+    private static readonly string[] AudioExtensions = [".mp3", ".wav", ".m4a", ".aac", ".flac"];
+
+    public static ProjectInventory Load(string projectFolder, ProjectOptions? options = null)
+    {
+        options ??= new ProjectOptions();
+        var issues = new List<ValidationIssue>();
+
+        var audio = FindAudio(projectFolder, issues);
+        var srt = FindSrt(projectFolder, issues);
+        var subtitles = ParseSubtitles(srt, issues);
+        var images = LoadImages(projectFolder, options.Naming, issues);
+        var sceneMap = LoadSceneMap(projectFolder, issues);
+
+        return new ProjectInventory
+        {
+            ProjectFolder = projectFolder,
+            AudioFilePath = audio,
+            SrtFilePath = srt,
+            Subtitles = subtitles,
+            AllImages = images.All,
+            SceneGroups = images.Groups,
+            SceneMapWindows = sceneMap,
+            Issues = issues,
+        };
+    }
+
+    private static string? FindAudio(string projectFolder, List<ValidationIssue> issues)
+    {
+        var audioDir = Path.Combine(projectFolder, "audio");
+        foreach (var dir in new[] { audioDir, projectFolder })
+        {
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+
+            var named = Directory.EnumerateFiles(dir, "narration.*")
+                .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
+                .OrderBy(f => f, NaturalSortComparer.Instance)
+                .FirstOrDefault();
+            if (named is not null)
+            {
+                return named;
+            }
+        }
+
+        foreach (var dir in new[] { audioDir, projectFolder })
+        {
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+
+            var any = Directory.EnumerateFiles(dir)
+                .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
+                .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
+                .FirstOrDefault();
+            if (any is not null)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Info, "AUDIO_FALLBACK",
+                    $"No narration.* audio found; using \"{Path.GetFileName(any)}\"."));
+                return any;
+            }
+        }
+
+        issues.Add(new ValidationIssue(
+            ValidationSeverity.Error, "AUDIO_MISSING",
+            "No narration audio found (expected audio\\narration.mp3 or narration.mp3 in the project root)."));
+        return null;
+    }
+
+    private static string? FindSrt(string projectFolder, List<ValidationIssue> issues)
+    {
+        var preferred = Path.Combine(projectFolder, "narration.srt");
+        if (File.Exists(preferred))
+        {
+            return preferred;
+        }
+
+        var any = Directory.Exists(projectFolder)
+            ? Directory.EnumerateFiles(projectFolder, "*.srt")
+                .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
+                .FirstOrDefault()
+            : null;
+
+        if (any is not null)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Info, "SRT_FALLBACK",
+                $"No narration.srt found; using \"{Path.GetFileName(any)}\"."));
+            return any;
+        }
+
+        issues.Add(new ValidationIssue(
+            ValidationSeverity.Error, "SRT_MISSING",
+            "No SRT subtitle file found (expected narration.srt in the project root)."));
+        return null;
+    }
+
+    private static List<SubtitleBlock> ParseSubtitles(string? srtPath, List<ValidationIssue> issues)
+    {
+        if (srtPath is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            var blocks = SrtParser.Parse(File.ReadAllText(srtPath));
+            if (blocks.Count == 0)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Error, "SRT_EMPTY",
+                    $"\"{Path.GetFileName(srtPath)}\" contains no subtitle blocks."));
+            }
+
+            return blocks;
+        }
+        catch (FormatException e)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "SRT_UNPARSABLE",
+                $"\"{Path.GetFileName(srtPath)}\" could not be parsed: {e.Message}"));
+            return [];
+        }
+        catch (IOException e)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "SRT_UNREADABLE",
+                $"\"{Path.GetFileName(srtPath)}\" could not be read: {e.Message}"));
+            return [];
+        }
+    }
+
+    private static (List<ImageInfo> All, List<SceneImageGroup> Groups) LoadImages(
+        string projectFolder, NamingOptions naming, List<ValidationIssue> issues)
+    {
+        var imagesDir = Path.Combine(projectFolder, "images");
+        if (!Directory.Exists(imagesDir))
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "IMAGES_MISSING",
+                "No \"images\" folder found in the project folder."));
+            return ([], []);
+        }
+
+        var allowedExtensions = naming.ImageExtensions
+            .Select(e => e.StartsWith('.') ? e : "." + e)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var parser = new ImageFilenameParser(naming);
+        var files = Directory.EnumerateFiles(imagesDir)
+            .Where(f => allowedExtensions.Contains(Path.GetExtension(f)))
+            .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
+            .ToList();
+
+        foreach (var file in files)
+        {
+            if (!parser.TryParse(file, out var parsed) || parsed is null)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "IMAGE_UNRECOGNIZED",
+                    $"\"{Path.GetFileName(file)}\" does not match the naming pattern and was ignored."));
+            }
+            else if (parsed.HasUnknownCode)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "IMAGE_UNKNOWN_CODE",
+                    $"\"{Path.GetFileName(file)}\" has an unknown motion code; motion will be auto-selected."));
+            }
+        }
+
+        var images = new List<ImageInfo>();
+        var seenStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            if (!parser.TryParse(file, out var parsed) || parsed is null)
+            {
+                continue;
+            }
+
+            var stemKey = Path.GetFileNameWithoutExtension(file);
+            if (!seenStems.Add(stemKey))
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "IMAGE_DUPLICATE_STEM",
+                    $"\"{Path.GetFileName(file)}\" duplicates an earlier stem; only the first file is used."));
+                continue;
+            }
+
+            if (!ImageDimensionsReader.TryRead(file, out var width, out var height))
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "IMAGE_UNREADABLE",
+                    $"\"{Path.GetFileName(file)}\" has unreadable image dimensions."));
+            }
+
+            images.Add(new ImageInfo(file, parsed, width, height));
+        }
+
+        if (images.Count == 0)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "IMAGES_NONE",
+                "No correctly named images were found in the \"images\" folder."));
+        }
+
+        var groups = images
+            .GroupBy(i => i.Name.SceneNumber)
+            .OrderBy(g => g.Key)
+            .Select(g => new SceneImageGroup(g.Key, naming.SceneId(g.Key), g.ToList()))
+            .ToList();
+
+        return (images, groups);
+    }
+
+    private static IReadOnlyList<SceneWindow>? LoadSceneMap(string projectFolder, List<ValidationIssue> issues)
+    {
+        var path = Path.Combine(projectFolder, "scenes.json");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var result = SceneMapParser.ParseFile(path);
+        issues.AddRange(result.Issues);
+        return result.Windows;
+    }
+}
