@@ -83,3 +83,37 @@ public sealed class TransitionKindJsonConverter : JsonConverter<TransitionKind>
         });
     }
 }
+
+public sealed class ImageTypeJsonConverter : JsonConverter<ImageType>
+{
+    public override ImageType Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var value = reader.GetString() ?? throw new JsonException("Image type value is null.");
+        return value switch
+        {
+            "scene" => ImageType.Scene,
+            "close_up" => ImageType.CloseUp,
+            "infographic" => ImageType.Infographic,
+            "comparison" => ImageType.Comparison,
+            "process" => ImageType.Process,
+            "hybrid" => ImageType.Hybrid,
+            "overview" => ImageType.Overview,
+            _ => throw new JsonException($"Unknown image type \"{value}\"."),
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, ImageType value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value switch
+        {
+            ImageType.Scene => "scene",
+            ImageType.CloseUp => "close_up",
+            ImageType.Infographic => "infographic",
+            ImageType.Comparison => "comparison",
+            ImageType.Process => "process",
+            ImageType.Hybrid => "hybrid",
+            ImageType.Overview => "overview",
+            _ => throw new JsonException($"Unhandled image type {value}."),
+        });
+    }
+}

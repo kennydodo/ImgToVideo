@@ -105,10 +105,11 @@ public class MotionEngineTests
     }
 
     [Fact]
-    public void Auto_selection_never_picks_pan_reveal()
+    public void Auto_selection_never_picks_pan_reveal_or_vertical_pans()
     {
         var engine = CreateEngine();
-        var previousPool = Enum.GetValues<MotionType>().Where(m => m != MotionType.PanReveal);
+        var previousPool = Enum.GetValues<MotionType>()
+            .Where(m => m is not (MotionType.PanReveal or MotionType.PanUp or MotionType.PanDown));
 
         foreach (var previous in previousPool)
         {
@@ -117,8 +118,45 @@ public class MotionEngineTests
                 var decision = engine.SelectMotion(
                     new MotionContext(null, false, false, false, previous, shots));
                 Assert.NotEqual(MotionType.PanReveal, decision.Motion);
+                Assert.NotEqual(MotionType.PanUp, decision.Motion);
+                Assert.NotEqual(MotionType.PanDown, decision.Motion);
             }
         }
+    }
+
+    [Fact]
+    public void Pan_up_spans_full_vertical_travel()
+    {
+        var result = CreateEngine().ComputeViewports(
+            MotionType.PanUp, MotionSource.ExplicitCode, true, 2304, 2160);
+
+        Assert.Equal(new Rect(192, 1080, 1920, 1080), result.Start);
+        Assert.Equal(new Rect(192, 0, 1920, 1080), result.End);
+        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 2160)));
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("below"));
+    }
+
+    [Fact]
+    public void Pan_down_spans_full_vertical_travel()
+    {
+        var result = CreateEngine().ComputeViewports(
+            MotionType.PanDown, MotionSource.ExplicitCode, true, 2304, 2160);
+
+        Assert.Equal(0, result.Start.Y);
+        Assert.Equal(1080, result.End.Y);
+        Assert.Equal(192, result.Start.X);
+        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 2160)));
+    }
+
+    [Fact]
+    public void Vertical_pan_on_undersized_image_warns_and_stays_inside()
+    {
+        var result = CreateEngine().ComputeViewports(
+            MotionType.PanDown, MotionSource.ExplicitCode, true, 2304, 1296);
+
+        Assert.Contains(result.Warnings, w => w.Contains("below the 2304x2160 spec"));
+        Assert.True(result.Start.IsInside(new Rect(0, 0, 2304, 1296)));
+        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 1296)));
     }
 
     [Fact]

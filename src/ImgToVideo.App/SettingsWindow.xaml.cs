@@ -22,6 +22,8 @@ public partial class SettingsWindow : Window
         TxtScenePrefix.TextChanged += (_, _) => UpdateNamingExample();
         TxtNumberPadding.TextChanged += (_, _) => UpdateNamingExample();
         TxtSeparator.TextChanged += (_, _) => UpdateNamingExample();
+        ChkTypeCodes.Checked += (_, _) => UpdateNamingExample();
+        ChkTypeCodes.Unchecked += (_, _) => UpdateNamingExample();
         ChkMotionCodes.Checked += (_, _) => UpdateNamingExample();
         ChkMotionCodes.Unchecked += (_, _) => UpdateNamingExample();
 
@@ -47,6 +49,7 @@ public partial class SettingsWindow : Window
         ChkTransitionsEnabled.IsChecked = Options.Transitions.Enabled;
         TxtTransitionDuration.Text = F(Options.Transitions.DurationSeconds);
 
+        ChkTypeCodes.IsChecked = Options.Naming.TypeCodesEnabled;
         ChkMotionCodes.IsChecked = Options.Naming.MotionCodesEnabled;
         TxtScenePrefix.Text = Options.Naming.ScenePrefix;
         TxtNumberPadding.Text = Options.Naming.NumberPadding.ToString(CultureInfo.InvariantCulture);
@@ -98,6 +101,7 @@ public partial class SettingsWindow : Window
             Naming = new NamingOptions
             {
                 MotionCodesEnabled = ChkMotionCodes.IsChecked == true,
+                TypeCodesEnabled = ChkTypeCodes.IsChecked == true,
                 ScenePrefix = TxtScenePrefix.Text.Length > 0 ? TxtScenePrefix.Text : Options.Naming.ScenePrefix,
                 NumberPadding = I(TxtNumberPadding.Text, Options.Naming.NumberPadding),
                 Separator = TxtSeparator.Text.Length > 0 ? TxtSeparator.Text : Options.Naming.Separator,
@@ -162,10 +166,13 @@ public partial class SettingsWindow : Window
             NumberPadding = I(TxtNumberPadding.Text, Options.Naming.NumberPadding),
             Separator = TxtSeparator.Text.Length > 0 ? TxtSeparator.Text : "_",
             MotionCodesEnabled = ChkMotionCodes.IsChecked == true,
+            TypeCodesEnabled = ChkTypeCodes.IsChecked == true,
         };
         var parser = new ImgToVideo.Core.Parsing.ImageFilenameParser(naming);
-        TxtNamingExample.Text = "Example: " + parser.FormatExample() +
-                                (naming.MotionCodesEnabled ? "" : "  (motion codes disabled)");
+        var example = parser.FormatExample(
+            type: naming.TypeCodesEnabled ? "SCN" : null,
+            code: naming.MotionCodesEnabled ? "PR" : null);
+        TxtNamingExample.Text = "Example: " + example;
     }
 
     private static double D(string text, double fallback) =>

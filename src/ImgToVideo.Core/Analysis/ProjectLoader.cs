@@ -219,11 +219,11 @@ public static class ProjectLoader
                         "(expected S{scene}_{index}[_CODE].png, e.g. S08_02_PR.png) and was ignored."));
                 }
             }
-            else if (parsed.HasUnknownCode)
+            else if (parsed.HasUnknownSuffix)
             {
                 issues.Add(new ValidationIssue(
                     ValidationSeverity.Warning, "IMAGE_UNKNOWN_CODE",
-                    $"\"{Path.GetFileName(file)}\" has an unknown motion code; motion will be auto-selected."));
+                    $"\"{Path.GetFileName(file)}\" has an unknown suffix; motion will be auto-selected."));
             }
         }
 

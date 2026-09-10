@@ -96,6 +96,26 @@ public class ProjectLoaderTests : IDisposable
     }
 
     [Fact]
+    public void Loads_new_naming_format_with_type_codes()
+    {
+        _project.WriteImage("S01_01_SCN_ST.png", 2304, 1296);
+        _project.WriteImage("S01_02_CU_ZI.png", 2304, 1296);
+        _project.WriteImage("S01_03_PROC.png", 2304, 1296);
+        _project.WriteSrt();
+        _project.WriteAudio();
+
+        var inventory = ProjectLoader.Load(_project.Path);
+
+        Assert.False(ValidationIssue.HasErrors(inventory.Issues));
+        Assert.Equal(3, inventory.AllImages.Count);
+        Assert.Equal(ImageType.Scene, inventory.AllImages[0].Name.Type);
+        Assert.Equal(ImageType.CloseUp, inventory.AllImages[1].Name.Type);
+        Assert.Equal(MotionType.ZoomIn, inventory.AllImages[1].Name.Code);
+        Assert.Equal(ImageType.Process, inventory.AllImages[2].Name.Type);
+        Assert.Null(inventory.AllImages[2].Name.Code);
+    }
+
+    [Fact]
     public void Warns_about_unknown_motion_code()
     {
         _project.WriteImage("S01_01_XX.png", 2304, 1296);
@@ -106,7 +126,7 @@ public class ProjectLoaderTests : IDisposable
 
         Assert.Contains(inventory.Issues, i => i.Code == "IMAGE_UNKNOWN_CODE");
         var image = Assert.Single(inventory.AllImages);
-        Assert.True(image.Name.HasUnknownCode);
+        Assert.True(image.Name.HasUnknownSuffix);
         Assert.Null(image.Name.Code);
     }
 

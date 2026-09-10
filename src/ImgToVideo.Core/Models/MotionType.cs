@@ -7,5 +7,7 @@ public enum MotionType
     ZoomOut,
     PanLeft,
     PanRight,
+    PanUp,
+    PanDown,
     PanReveal,
 }

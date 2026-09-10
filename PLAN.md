@@ -25,7 +25,7 @@ Not an AI editor, not a compositor, not a subtitle tool. Deterministic in, deter
 | Duration min / preferred / max | 2.5 / 5.0 / 8.0 s | |
 | Overflow floor | 2.0 s | Over-packed scenes shrink to this before erroring |
 | Crossfade | 0.5 s, toggleable | Centered on the cut — see §6 |
-| Motion vocabulary | `ST, ZI, ZO, PL, PR, PV` | One enum used in filenames, JSON, and code |
+| Motion vocabulary | `ST, ZI, ZO, PL, PR, PU, PD, PV` | One enum used in filenames, JSON, and code; vertical pans and reveals are explicit-code only |
 
 ## 3. Motion codes are composition contracts
 
@@ -165,11 +165,15 @@ public class VideoClip
 **Filename grammar (formal, case-insensitive on Windows):**
 
 ```
-S{scene:2d}_{index:2d}(_{CODE})?.png      CODE ∈ {ST, ZI, ZO, PL, PR, PV}
+S{scene:2d}_{index:2d}(_{TYPE})?(_{CODE})?.png
+TYPE ∈ SCN, CU, INF, CMP, PROC, HYB, OVR        CODE ∈ ST, ZI, ZO, PL, PR, PU, PD, PV
 ```
 
-`S08_02_PR.png` → scene 8, image 2, explicit pan-right contract. Natural sort on scene and index
-as numbers (`S01_10` sorts after `S01_02`).
+The official format is `S##_##_TYPE_MOTION.png` (e.g. `S01_02_CU_ZI.png`); legacy names
+(`S01_02_ZI.png`, `S01_01.png`) remain valid, and both suffix segments are independently
+enable/disable-able in `NamingOptions` (`TypeCodesEnabled`, `MotionCodesEnabled`). Image type is
+carried into `timeline.json` (`image_type`) as metadata for future rules; unknown suffixes warn
+and fall back to auto-selected motion.
 
 ## 7. Pipeline rules
 
@@ -320,6 +324,15 @@ Refinements made while implementing phases 1–7; these refine the rules above.
 - SRT: `narration.srt` → first `*.srt` natural-ordered (INFO fallback)
 - Images: `images\` folder only, filtered by `NamingOptions.ImageExtensions`; duplicate stems keep
   the first file with a WARNING; dimensions are read from PNG/JPEG headers (no System.Drawing)
+
+**Naming grammar v2 (S##_##_TYPE_MOTION)**
+- The parser classifies suffix segments from the end: last segment = motion code, preceding
+  segment = image type; anything left over is an unknown suffix (WARNING, auto-selected motion)
+- Both suffix kinds can be disabled independently; a file carrying a disabled segment is rejected
+- Image type (`SCN/CU/INF/CMP/PROC/HYB/OVR`) is metadata on `VideoClip.ImageType` — timeline
+  schema version bumped to 2; no v1 behavior depends on it yet
+- Vertical pans `PU`/`PD` derive their 100% viewport from the WIDTH margin (mirror of PL/PR);
+  minimum size 2304×2160 (200% tall)
 
 **Renderer (§9, phases 8–9)**
 - Segment filter chain: lanczos pre-supersample (2× when source width < 3840) → `zoompan` with

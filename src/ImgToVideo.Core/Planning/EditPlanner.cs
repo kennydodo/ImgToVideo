@@ -298,7 +298,7 @@ public static class EditPlanner
                 VideoClip? clip;
                 if (options.Transitions.Enabled && i > 0 && options.Transitions.Kind == TransitionKind.Crossfade)
                 {
-                    clip = MakeClip(timed, decision, viewports, new TransitionIn
+                    clip = MakeClip(timed, image.Name.Type, decision, viewports, new TransitionIn
                     {
                         Kind = TransitionKind.Crossfade,
                         DurationFrames = transitionFrames,
@@ -306,7 +306,7 @@ public static class EditPlanner
                 }
                 else
                 {
-                    clip = MakeClip(timed, decision, viewports, null);
+                    clip = MakeClip(timed, image.Name.Type, decision, viewports, null);
                 }
 
                 sceneClips.Add(clip);
@@ -328,6 +328,7 @@ public static class EditPlanner
 
     private static VideoClip MakeClip(
         TimedClip timed,
+        ImageType? imageType,
         MotionDecision decision,
         ViewportResult viewports,
         TransitionIn? transition) =>
@@ -339,6 +340,7 @@ public static class EditPlanner
             DurationFrames = timed.DurationFrames,
             Motion = decision.Motion,
             MotionSource = decision.Source,
+            ImageType = imageType,
             StartViewport = viewports.Start,
             EndViewport = viewports.End,
             Transition = transition,

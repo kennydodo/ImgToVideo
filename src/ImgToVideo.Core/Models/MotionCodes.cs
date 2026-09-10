@@ -9,6 +9,8 @@ public static class MotionCodes
         ("ZO", MotionType.ZoomOut),
         ("PL", MotionType.PanLeft),
         ("PR", MotionType.PanRight),
+        ("PU", MotionType.PanUp),
+        ("PD", MotionType.PanDown),
         ("PV", MotionType.PanReveal),
     };
 
@@ -32,6 +34,7 @@ public static class MotionCodes
     public static (int Width, int Height) MinimumSize(MotionType motion) => motion switch
     {
         MotionType.PanLeft or MotionType.PanRight => (2880, 1296),
+        MotionType.PanUp or MotionType.PanDown => (2304, 2160),
         MotionType.PanReveal => (3840, 1296),
         _ => (2304, 1296),
     };

@@ -55,7 +55,8 @@ public sealed class MotionEngine
 
         if (ctx.ShotsSinceStatic >= Math.Max(1, _motion.StaticEveryMaxShots) ||
             (ctx.ShotsSinceStatic >= _motion.StaticEveryMinShots &&
-             ctx.Previous is MotionType.PanLeft or MotionType.PanRight))
+             ctx.Previous is MotionType.PanLeft or MotionType.PanRight
+                 or MotionType.PanUp or MotionType.PanDown))
         {
             return new MotionDecision(MotionType.Static, MotionSource.AutoSelected);
         }
@@ -64,6 +65,8 @@ public sealed class MotionEngine
         {
             MotionType.PanLeft => new[] { MotionType.Static, MotionType.PanRight, MotionType.ZoomIn },
             MotionType.PanRight => new[] { MotionType.Static, MotionType.PanLeft, MotionType.ZoomOut },
+            MotionType.PanUp => new[] { MotionType.Static, MotionType.ZoomIn, MotionType.ZoomOut },
+            MotionType.PanDown => new[] { MotionType.Static, MotionType.ZoomIn, MotionType.ZoomOut },
             MotionType.ZoomIn => new[] { MotionType.Static, MotionType.PanRight, MotionType.ZoomOut },
             MotionType.ZoomOut => new[] { MotionType.Static, MotionType.ZoomIn, MotionType.PanLeft },
             _ => new[] { MotionType.ZoomIn, MotionType.PanLeft, MotionType.PanRight, MotionType.ZoomOut },
@@ -90,8 +93,18 @@ public sealed class MotionEngine
         var warnings = new List<string>();
         var aspect = (double)_output.Width / _output.Height;
 
-        var viewportHeight = imageHeight / MarginFactor;
-        var viewportWidth = viewportHeight * aspect;
+        double viewportHeight;
+        double viewportWidth;
+        if (motion is MotionType.PanUp or MotionType.PanDown)
+        {
+            viewportWidth = imageWidth / MarginFactor;
+            viewportHeight = viewportWidth / aspect;
+        }
+        else
+        {
+            viewportHeight = imageHeight / MarginFactor;
+            viewportWidth = viewportHeight * aspect;
+        }
 
         if (viewportWidth > imageWidth)
         {
@@ -129,6 +142,31 @@ public sealed class MotionEngine
         return new ViewportResult(result.Start, result.End, warnings);
     }
 
+    private static ViewportResult VerticalPanViewports(
+        MotionType motion, double vpW, double vpH, int imageWidth, int imageHeight)
+    {
+        var available = imageHeight - vpH;
+        var x = (imageWidth - vpW) / 2.0;
+
+        double startY;
+        double endY;
+        if (motion == MotionType.PanUp)
+        {
+            startY = available;
+            endY = 0;
+        }
+        else
+        {
+            startY = 0;
+            endY = available;
+        }
+
+        return new ViewportResult(
+            new Rect(x, startY, vpW, vpH),
+            new Rect(x, endY, vpW, vpH),
+            []);
+    }
+
     private static ViewportResult StaticViewports(double vpW, double vpH, int imageWidth, int imageHeight)
     {
         var centered = Centered(vpW, vpH, imageWidth, imageHeight);
@@ -156,6 +194,11 @@ public sealed class MotionEngine
         int imageHeight,
         List<string> warnings)
     {
+        if (motion is MotionType.PanUp or MotionType.PanDown)
+        {
+            return VerticalPanViewports(motion, vpW, vpH, imageWidth, imageHeight);
+        }
+
         var available = imageWidth - vpW;
         var y = (imageHeight - vpH) / 2.0;
 

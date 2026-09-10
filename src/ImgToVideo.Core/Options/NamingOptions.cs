@@ -6,6 +6,7 @@ public sealed class NamingOptions
     public int NumberPadding { get; set; } = 2;
     public string Separator { get; set; } = "_";
     public bool MotionCodesEnabled { get; set; } = true;
+    public bool TypeCodesEnabled { get; set; } = true;
     public List<string> ImageExtensions { get; set; } = [".png"];
 
     public string SceneId(int sceneNumber)

@@ -17,7 +17,10 @@ See [docs/generation-spec.md](docs/generation-spec.md) for the image generation 
   progress/cancel, ffprobe audio duration
 - Premiere: FCP7 XML exporter with motion keyframes + cuts-only fallback
 - WPF shell: analyze/build/export UI, diagnostics panel, full settings editor persisted to
-  `imgtovideo.json` — 130 unit tests
+  `imgtovideo.json` — 143 unit tests
+- Naming v2 (`S##_##_TYPE_MOTION.png`) supported: image type codes (SCN/CU/INF/CMP/PROC/HYB/OVR),
+  vertical pans PU/PD, legacy names still parse; type codes and motion codes are independently
+  toggleable in Settings > File naming
 - Requires ffmpeg/ffprobe on PATH (or set in Settings); install with `winget install Gyan.FFmpeg`
 - Manual spikes pending: phase 0 (import exported XML into Premiere, verify keyframes — fallback
   is `IncludeMotionKeyframes = false`), phase 0b (CapCut draft study)

@@ -50,6 +50,7 @@ public static class TimelineJson
         options.Converters.Add(new MotionTypeJsonConverter());
         options.Converters.Add(new MotionSourceJsonConverter());
         options.Converters.Add(new TransitionKindJsonConverter());
+        options.Converters.Add(new ImageTypeJsonConverter());
         return options;
     }
 }

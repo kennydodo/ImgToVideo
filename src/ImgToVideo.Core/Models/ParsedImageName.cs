@@ -5,4 +5,5 @@ public sealed record ParsedImageName(
     int SceneNumber,
     int ImageNumber,
     MotionType? Code,
-    bool HasUnknownCode);
+    bool HasUnknownSuffix,
+    ImageType? Type = null);

@@ -2,7 +2,7 @@ namespace ImgToVideo.Core.Models;
 
 public sealed class Timeline
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string ProjectName { get; set; } = string.Empty;

@@ -27,17 +27,18 @@ public class TimelineJsonTests
             EndFrame = 30 * 9,
             Clips =
             {
-                new VideoClip
-                {
-                    FilePath = "images/S01_01.png",
-                    SceneId = "S01",
-                    StartFrame = 0,
-                    DurationFrames = 135,
-                    Motion = MotionType.ZoomIn,
-                    MotionSource = MotionSource.ExplicitCode,
-                    StartViewport = new Rect(0, 0, 2304, 1296),
-                    EndViewport = new Rect(60, 30, 2160, 1215),
-                },
+                        new VideoClip
+                        {
+                            FilePath = "images/S01_01.png",
+                            SceneId = "S01",
+                            StartFrame = 0,
+                            DurationFrames = 135,
+                            Motion = MotionType.ZoomIn,
+                            MotionSource = MotionSource.ExplicitCode,
+                            ImageType = ImageType.Scene,
+                            StartViewport = new Rect(0, 0, 2304, 1296),
+                            EndViewport = new Rect(60, 30, 2160, 1215),
+                        },
                 new VideoClip
                 {
                     FilePath = "images/S01_02.png",
@@ -81,6 +82,7 @@ public class TimelineJsonTests
         Assert.Equal(originalClip.DurationFrames, loadedClip.DurationFrames);
         Assert.Equal(MotionType.ZoomIn, loadedClip.Motion);
         Assert.Equal(MotionSource.ExplicitCode, loadedClip.MotionSource);
+        Assert.Equal(ImageType.Scene, loadedClip.ImageType);
         Assert.Equal(originalClip.StartViewport, loadedClip.StartViewport);
         Assert.Equal(originalClip.EndViewport, loadedClip.EndViewport);
 
@@ -106,7 +108,7 @@ public class TimelineJsonTests
     public void Load_rejects_unknown_schema_version()
     {
         var json = System.Text.Json.JsonSerializer.Serialize(SampleTimeline(), TimelineJson.Options);
-        var mutated = json.Replace("\"schema_version\": 1", "\"schema_version\": 99");
+        var mutated = json.Replace("\"schema_version\": 2", "\"schema_version\": 99");
 
         Assert.Throws<InvalidDataException>(() => TimelineJson.LoadFromJson(mutated));
     }
@@ -122,7 +124,7 @@ public class TimelineJsonTests
     {
         var json = """
             {
-              "schema_version": 1,
+              "schema_version": 2,
               "project_name": "x",
               "resolution": { "width": 1920, "height": 1080 },
               "fps": 30,
@@ -159,6 +161,7 @@ public class TimelineJsonTests
 
         Assert.Contains("\"motion\": \"zoom_in\"", json);
         Assert.Contains("\"motion_source\": \"explicit_code\"", json);
-        Assert.Contains("\"schema_version\": 1", json);
+        Assert.Contains("\"schema_version\": 2", json);
+        Assert.Contains("\"image_type\": \"scene\"", json);
     }
 }

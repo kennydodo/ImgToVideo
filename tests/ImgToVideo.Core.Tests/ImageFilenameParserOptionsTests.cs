@@ -12,9 +12,24 @@ public class ImageFilenameParserOptionsTests
     {
         var parser = new ImageFilenameParser();
 
-        Assert.Equal("S08_02_PR", parser.FormatExample());
-        Assert.True(parser.TryParse("S08_02_PR.png", out var parsed));
-        Assert.Equal(MotionType.PanRight, parsed!.Code);
+        Assert.Equal("S08_02_SCN_PR", parser.FormatExample());
+        Assert.True(parser.TryParse("S08_02_SCN_PR.png", out var parsed));
+        Assert.Equal(ImageType.Scene, parsed!.Type);
+        Assert.Equal(MotionType.PanRight, parsed.Code);
+    }
+
+    [Fact]
+    public void Legacy_two_part_names_still_parse()
+    {
+        var parser = new ImageFilenameParser();
+
+        Assert.True(parser.TryParse("S08_02_PR.png", out var withMotion));
+        Assert.Null(withMotion!.Type);
+        Assert.Equal(MotionType.PanRight, withMotion.Code);
+
+        Assert.True(parser.TryParse("S01_01.png", out var plain));
+        Assert.Null(plain!.Type);
+        Assert.Null(plain.Code);
     }
 
     [Fact]
@@ -28,8 +43,8 @@ public class ImageFilenameParserOptionsTests
         };
         var parser = new ImageFilenameParser(options);
 
-        Assert.Equal("SC008-002-PR", parser.FormatExample());
-        Assert.True(parser.TryParse("SC008-002-PR.png", out var parsed));
+        Assert.Equal("SC008-002-SCN-PR", parser.FormatExample());
+        Assert.True(parser.TryParse("SC008-002-SCN-PR.png", out var parsed));
         Assert.Equal(8, parsed!.SceneNumber);
         Assert.Equal(2, parsed.ImageNumber);
         Assert.Equal(MotionType.PanRight, parsed.Code);
@@ -37,7 +52,7 @@ public class ImageFilenameParserOptionsTests
     }
 
     [Fact]
-    public void Disabled_motion_codes_reject_suffixed_files()
+    public void Disabled_motion_codes_reject_motion_suffixed_files()
     {
         var options = new NamingOptions { MotionCodesEnabled = false };
         var parser = new ImageFilenameParser(options);
@@ -45,6 +60,19 @@ public class ImageFilenameParserOptionsTests
         Assert.False(parser.TryParse("S01_02_ZI.png", out _));
         Assert.True(parser.TryParse("S01_02.png", out var parsed));
         Assert.Null(parsed!.Code);
+    }
+
+    [Fact]
+    public void Disabled_type_codes_reject_type_suffixed_files()
+    {
+        var options = new NamingOptions { TypeCodesEnabled = false };
+        var parser = new ImageFilenameParser(options);
+
+        Assert.False(parser.TryParse("S01_02_SCN_ST.png", out _));
+        Assert.True(parser.TryParse("S01_02_ZI.png", out var legacy));
+        Assert.Equal(MotionType.ZoomIn, legacy!.Code);
+        Assert.True(parser.TryParse("S01_01.png", out var plain));
+        Assert.Null(plain!.Type);
     }
 
     [Fact]
