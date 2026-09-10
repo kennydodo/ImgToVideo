@@ -10,6 +10,7 @@ public sealed record SegmentCommand(
 
 public sealed record RenderPlan(
     IReadOnlyList<SegmentCommand> Segments,
+    string ConcatListPath,
     string ConcatListContent,
     IReadOnlyList<string> ConcatArguments,
     string RoughPath,

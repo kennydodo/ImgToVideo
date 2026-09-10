@@ -81,6 +81,8 @@ public sealed class PreviewRenderService
             return new RenderResult(false, plan.PreviewPath, errors);
         }
 
+        File.WriteAllText(plan.ConcatListPath, plan.ConcatListContent);
+
         var concat = await _runner.RunAsync(plan.ConcatArguments, cancellationToken: cancellationToken);
         if (!concat.Success)
         {

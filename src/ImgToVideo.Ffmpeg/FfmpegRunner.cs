@@ -29,7 +29,7 @@ public sealed class FfmpegRunner
 
     public FfmpegRunner(string ffmpegPath = "ffmpeg")
     {
-        _ffmpegPath = string.IsNullOrWhiteSpace(ffmpegPath) ? "ffmpeg" : ffmpegPath;
+        _ffmpegPath = ToolLocator.Resolve("ffmpeg", ffmpegPath);
     }
 
     public async Task<ProcessResult> RunAsync(

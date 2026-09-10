@@ -8,7 +8,7 @@ public sealed class Ffprobe
 
     public Ffprobe(string ffprobePath = "ffprobe")
     {
-        _ffprobePath = string.IsNullOrWhiteSpace(ffprobePath) ? "ffprobe" : ffprobePath;
+        _ffprobePath = ToolLocator.Resolve("ffprobe", ffprobePath);
     }
 
     public async Task<double> GetDurationSecondsAsync(string mediaPath, CancellationToken cancellationToken = default)

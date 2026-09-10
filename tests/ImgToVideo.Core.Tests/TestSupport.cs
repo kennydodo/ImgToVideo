@@ -4,20 +4,39 @@ public static class TestImages
 {
     public static byte[] Png(int width, int height)
     {
-        var bytes = new List<byte>
+        var ihdr = new byte[13];
+        WriteBigEndian32(ihdr, 0, (uint)width);
+        WriteBigEndian32(ihdr, 4, (uint)height);
+        ihdr[8] = 8;   // bit depth
+        ihdr[9] = 2;   // color type: truecolor RGB
+        // bytes 10-12: compression, filter, interlace = 0
+
+        var stride = width * 3;
+        var raw = new byte[height * (stride + 1)];
+        for (var y = 0; y < height; y++)
         {
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0x00, 0x00, 0x00, 0x0D,
-            (byte)'I', (byte)'H', (byte)'D', (byte)'R',
-        };
-        bytes.AddRange(BitConverter.IsLittleEndian
-            ? BitConverter.GetBytes(System.Buffers.Binary.BinaryPrimitives.ReverseEndianness(width))
-            : BitConverter.GetBytes(width));
-        bytes.AddRange(BitConverter.IsLittleEndian
-            ? BitConverter.GetBytes(System.Buffers.Binary.BinaryPrimitives.ReverseEndianness(height))
-            : BitConverter.GetBytes(height));
-        bytes.AddRange([0x08, 0x06, 0x00, 0x00, 0x00]);
-        return [.. bytes];
+            var rowStart = y * (stride + 1);
+            raw[rowStart] = 0; // filter: none
+            for (var x = 0; x < width; x++)
+            {
+                raw[rowStart + 1 + x * 3] = (byte)(x * 255 / Math.Max(1, width - 1));
+                raw[rowStart + 2 + x * 3] = (byte)(y * 255 / Math.Max(1, height - 1));
+                raw[rowStart + 3 + x * 3] = 128;
+            }
+        }
+
+        using var compressed = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.Fastest))
+        {
+            zlib.Write(raw);
+        }
+
+        var png = new List<byte>(1 << 16);
+        png.AddRange([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        AppendChunk(png, "IHDR", ihdr);
+        AppendChunk(png, "IDAT", compressed.ToArray());
+        AppendChunk(png, "IEND", []);
+        return [.. png];
     }
 
     public static byte[] Jpeg(int width, int height)
@@ -35,6 +54,49 @@ public static class TestImages
         bytes.Add((byte)(width & 0xFF));
         bytes.AddRange([0x01, 0x01, 0x00, 0x01, 0x01, 0x00]);
         return [.. bytes];
+    }
+
+    private static void AppendChunk(List<byte> png, string type, byte[] data)
+    {
+        var length = (uint)data.Length;
+        png.AddRange([
+            (byte)(length >> 24), (byte)(length >> 16), (byte)(length >> 8), (byte)length,
+        ]);
+        var typeBytes = System.Text.Encoding.ASCII.GetBytes(type);
+        png.AddRange(typeBytes);
+        png.AddRange(data);
+
+        var crcInput = new byte[typeBytes.Length + data.Length];
+        typeBytes.CopyTo(crcInput, 0);
+        data.CopyTo(crcInput, typeBytes.Length);
+        var crc = Crc32(crcInput);
+        png.AddRange([
+            (byte)(crc >> 24), (byte)(crc >> 16), (byte)(crc >> 8), (byte)crc,
+        ]);
+    }
+
+    private static void WriteBigEndian32(byte[] buffer, int offset, uint value)
+    {
+        buffer[offset] = (byte)(value >> 24);
+        buffer[offset + 1] = (byte)(value >> 16);
+        buffer[offset + 2] = (byte)(value >> 8);
+        buffer[offset + 3] = (byte)value;
+    }
+
+    private static uint Crc32(byte[] data)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (var b in data)
+        {
+            crc ^= b;
+            for (var bit = 0; bit < 8; bit++)
+            {
+                var mask = (crc & 1) == 1 ? 0xEDB88320u : 0u;
+                crc = (crc >> 1) ^ mask;
+            }
+        }
+
+        return ~crc;
     }
 }
 

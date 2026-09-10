@@ -81,6 +81,7 @@ public static class PreviewRenderPlanFactory
         var roughPath = Path.Combine(outputDirectory, "rough.mp4");
         return new RenderPlan(
             Segments: segments,
+            ConcatListPath: Path.Combine(outputDirectory, "concat.txt"),
             ConcatListContent: BuildConcatList(segments),
             ConcatArguments: BuildConcatArguments(Path.Combine(outputDirectory, "concat.txt"), roughPath),
             RoughPath: roughPath,
