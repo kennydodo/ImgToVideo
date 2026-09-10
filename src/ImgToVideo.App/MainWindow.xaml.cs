@@ -71,10 +71,7 @@ public partial class MainWindow : Window
             UpdateStats();
             UpdateIssues(_inventory.Issues);
 
-            var blocked = ValidationIssue.HasErrors(_inventory.Issues);
-            BtnBuild.IsEnabled = !blocked;
-            BtnExport.IsEnabled = !blocked;
-            ShowStatus(blocked
+            ShowStatus(ValidationIssue.HasErrors(_inventory.Issues)
                 ? "Analysis found blocking errors — see diagnostics."
                 : $"Analysis complete: {_inventory.AllImages.Count} images in {_inventory.SceneGroups.Count} scenes.");
 
@@ -314,12 +311,22 @@ public partial class MainWindow : Window
     private void SetBusy(bool busy, string? status)
     {
         BtnAnalyze.IsEnabled = !busy;
-        BtnBuild.IsEnabled = !busy && _planned is { Success: true };
-        BtnExport.IsEnabled = !busy && _planned is { Success: true };
         BtnSettings.IsEnabled = !busy;
         BtnCancel.IsEnabled = busy;
-        if (!busy)
+
+        if (busy)
         {
+            BtnBuild.IsEnabled = false;
+            BtnExport.IsEnabled = false;
+            PbRender.Value = 0;
+        }
+        else
+        {
+            var blocked = _inventory is null
+                || ValidationIssue.HasErrors(_inventory.Issues)
+                || _planned is { Success: false };
+            BtnBuild.IsEnabled = !blocked;
+            BtnExport.IsEnabled = !blocked;
             PbRender.Value = 0;
         }
 
