@@ -14,6 +14,10 @@ namespace ImgToVideo.App;
 
 public partial class MainWindow : Window
 {
+    private sealed record DiagnosticsRow(string Text, System.Windows.Media.SolidColorBrush TextBrush, System.Windows.Media.SolidColorBrush TintBrush);
+
+    private enum StatusKind { Neutral, Success, Error }
+
     private ProjectOptions _options = new();
     private ProjectInventory? _inventory;
     private PlanningResult? _planned;
@@ -73,13 +77,14 @@ public partial class MainWindow : Window
 
             ShowStatus(ValidationIssue.HasErrors(_inventory.Issues)
                 ? "Analysis found blocking errors — see diagnostics."
-                : $"Analysis complete: {_inventory.AllImages.Count} images in {_inventory.SceneGroups.Count} scenes.");
+                : $"Analysis complete: {_inventory.AllImages.Count} images in {_inventory.SceneGroups.Count} scenes.",
+                ValidationIssue.HasErrors(_inventory.Issues) ? StatusKind.Error : StatusKind.Success);
 
             await ProbeAudioDurationAsync();
         }
         catch (Exception ex)
         {
-            ShowStatus("Analyze failed: " + ex.Message);
+            ShowStatus("Analyze failed: " + ex.Message, StatusKind.Error);
         }
         finally
         {
@@ -116,7 +121,8 @@ public partial class MainWindow : Window
 
             ShowStatus(result.Success
                 ? $"Preview ready: {previewPath}"
-                : "Render failed: " + string.Join(" | ", result.Errors));
+                : "Render failed: " + string.Join(" | ", result.Errors),
+                result.Success ? StatusKind.Success : StatusKind.Error);
         }
         catch (OperationCanceledException)
         {
@@ -124,7 +130,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowStatus("Build failed: " + ex.Message);
+            ShowStatus("Build failed: " + ex.Message, StatusKind.Error);
         }
         finally
         {
@@ -152,11 +158,11 @@ public partial class MainWindow : Window
                 _planned!.Timeline!, _inventory.AllImages,
                 new PremiereExportOptions { IncludeMotionKeyframes = true });
             File.WriteAllText(xmlPath, xml);
-            ShowStatus($"Exported: {xmlPath} — import it into Premiere (File > Import).");
+            ShowStatus($"Exported: {xmlPath} — import it into Premiere (File > Import).", StatusKind.Success);
         }
         catch (Exception ex)
         {
-            ShowStatus("Export failed: " + ex.Message);
+            ShowStatus("Export failed: " + ex.Message, StatusKind.Error);
         }
         finally
         {
@@ -177,7 +183,7 @@ public partial class MainWindow : Window
         {
             _options = dialog.Options;
             SyncOptionControls();
-            ShowStatus("Settings saved.");
+            ShowStatus("Settings saved.", StatusKind.Success);
         }
     }
 
@@ -185,7 +191,7 @@ public partial class MainWindow : Window
     {
         if (_projectFolder.Length == 0 || !Directory.Exists(_projectFolder))
         {
-            ShowStatus("Select an existing project folder first.");
+            ShowStatus("Select an existing project folder first.", StatusKind.Error);
             return false;
         }
 
@@ -202,7 +208,7 @@ public partial class MainWindow : Window
 
         if (_inventory?.AudioFilePath is null)
         {
-            ShowStatus("No audio file — cannot plan.");
+            ShowStatus("No audio file — cannot plan.", StatusKind.Error);
             return false;
         }
 
@@ -210,7 +216,7 @@ public partial class MainWindow : Window
         var optionsErrors = _options.Validate();
         if (optionsErrors.Count > 0)
         {
-            ShowStatus("Invalid settings: " + string.Join(" ", optionsErrors));
+            ShowStatus("Invalid settings: " + string.Join(" ", optionsErrors), StatusKind.Error);
             return false;
         }
 
@@ -221,7 +227,7 @@ public partial class MainWindow : Window
 
         if (!_planned.Success)
         {
-            ShowStatus("Build blocked: fix errors in diagnostics first.");
+            ShowStatus("Build blocked: fix errors in diagnostics first.", StatusKind.Error);
             return false;
         }
 
@@ -275,7 +281,17 @@ public partial class MainWindow : Window
         LstIssues.Items.Clear();
         foreach (var issue in issues)
         {
-            LstIssues.Items.Add($"[{issue.Severity.ToString().ToUpperInvariant()}] {issue.Message}");
+            var (textBrush, tintBrush) = issue.Severity switch
+            {
+                ValidationSeverity.Error => ("BrushErrorFg", "BrushErrorBg"),
+                ValidationSeverity.Warning => ("BrushWarnFg", "BrushWarnBg"),
+                _ => ("BrushInfoFg", "BrushInfoBg"),
+            };
+
+            LstIssues.Items.Add(new DiagnosticsRow(
+                $"[{issue.Severity.ToString().ToUpperInvariant()}] {issue.Message}",
+                (System.Windows.Media.SolidColorBrush)FindResource(textBrush),
+                (System.Windows.Media.SolidColorBrush)FindResource(tintBrush)));
         }
 
         if (_inventory is not null)
@@ -336,9 +352,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowStatus(string message)
+    private void ShowStatus(string message) => ShowStatus(message, StatusKind.Neutral);
+
+    private void ShowStatus(string message, StatusKind kind)
     {
         TxtStatus.Text = message;
+        TxtStatus.Foreground = kind switch
+        {
+            StatusKind.Success => (System.Windows.Media.SolidColorBrush)FindResource("BrushStatusSuccess"),
+            StatusKind.Error => (System.Windows.Media.SolidColorBrush)FindResource("BrushStatusError"),
+            _ => (System.Windows.Media.SolidColorBrush)FindResource("BrushTextPrimary"),
+        };
     }
 
     private void AppendStatus(string message)

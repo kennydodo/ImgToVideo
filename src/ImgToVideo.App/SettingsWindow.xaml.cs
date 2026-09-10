@@ -173,6 +173,8 @@ public partial class SettingsWindow : Window
             type: naming.TypeCodesEnabled ? "SCN" : null,
             code: naming.MotionCodesEnabled ? "PR" : null);
         TxtNamingExample.Text = "Example: " + example;
+        TxtNamingExample.Foreground =
+            (System.Windows.Media.SolidColorBrush)FindResource("BrushTextTertiary");
     }
 
     private static double D(string text, double fallback) =>

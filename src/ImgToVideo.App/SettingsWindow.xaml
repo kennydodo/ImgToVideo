@@ -4,12 +4,15 @@
         Title="ImgToVideo — Settings"
         Height="640" Width="560"
         MinHeight="520" MinWidth="480"
+        Background="{StaticResource BrushWindowBackground}"
         WindowStartupLocation="CenterOwner">
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,10,0,0">
-            <Button x:Name="BtnSave" Content="Save" Padding="16,4" Margin="0,0,8,0" Click="BtnSave_Click"/>
-            <Button x:Name="BtnCancel" Content="Cancel" Padding="16,4" IsCancel="True"/>
+            <Button x:Name="BtnSave" Content="Save"
+                    Style="{StaticResource PrimaryButton}" Margin="0,0,8,0" Click="BtnSave_Click"/>
+            <Button x:Name="BtnCancel" Content="Cancel"
+                    Style="{StaticResource SecondaryButton}" IsCancel="True"/>
         </StackPanel>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -77,8 +80,8 @@
                             <TextBlock Text="Extensions (comma separated)" VerticalAlignment="Center"/>
                             <TextBox x:Name="TxtExtensions" Padding="3,2" Margin="0,2,12,2"/>
                         </UniformGrid>
-                        <TextBlock x:Name="TxtNamingExample" Text="Example: S08_02_PR"
-                                   Foreground="#666" Margin="0,6,0,0"/>
+                        <TextBlock x:Name="TxtNamingExample" Text="Example: S08_02_SCN_PR"
+                                   Margin="0,6,0,0"/>
                     </StackPanel>
                 </GroupBox>
 

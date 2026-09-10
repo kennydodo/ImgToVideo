@@ -4,6 +4,7 @@
         Title="ImgToVideo — Video Assembler"
         Height="680" Width="780"
         MinHeight="560" MinWidth="640"
+        Background="{StaticResource BrushWindowBackground}"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="14">
         <Grid.RowDefinitions>
@@ -17,6 +18,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Text="VIDEO ASSEMBLER"
+                   Foreground="{StaticResource BrushTextPrimary}"
                    FontSize="18" FontWeight="Bold" Margin="0,0,0,12"/>
 
         <Grid Grid.Row="1" Margin="0,0,0,12">
@@ -25,15 +27,18 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Project Folder:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBlock Grid.Column="0" Text="Project Folder:"
+                       Foreground="{StaticResource BrushTextLabel}"
+                       VerticalAlignment="Center" Margin="0,0,8,0"/>
             <TextBox Grid.Column="1" x:Name="TxtFolder" VerticalAlignment="Center"
-                     Padding="4,3" TextChanged="TxtFolder_TextChanged"/>
+                     TextChanged="TxtFolder_TextChanged"/>
             <Button Grid.Column="2" x:Name="BtnBrowse" Content="Browse…"
-                    Padding="10,3" Margin="8,0,0,0" Click="BtnBrowse_Click"/>
+                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Click="BtnBrowse_Click"/>
         </Grid>
 
-        <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="1" Padding="10" Margin="0,0,0,12"
-                Background="#FAFAFA">
+        <Border Grid.Row="2" BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="1" Padding="10" Margin="0,0,0,12"
+                Background="{StaticResource BrushPanel}" CornerRadius="4">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -47,20 +52,32 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Audio:" FontWeight="SemiBold" Margin="0,2,8,2"/>
-                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="TxtAudio" Text="—" Margin="0,2"/>
-                <TextBlock Grid.Row="0" Grid.Column="2" Text="Subtitle:" FontWeight="SemiBold" Margin="24,2,8,2"/>
-                <TextBlock Grid.Row="0" Grid.Column="3" x:Name="TxtSubtitle" Text="—" Margin="0,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Audio:"
+                           Foreground="{StaticResource BrushTextLabel}" Margin="0,2,8,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="TxtAudio" Text="—"
+                           Foreground="{StaticResource BrushTextPrimary}" Margin="0,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="Subtitle:"
+                           Foreground="{StaticResource BrushTextLabel}" Margin="24,2,8,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="3" x:Name="TxtSubtitle" Text="—"
+                           Foreground="{StaticResource BrushTextPrimary}" Margin="0,2"/>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Images:" FontWeight="SemiBold" Margin="0,2,8,2"/>
-                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TxtImages" Text="—" Margin="0,2"/>
-                <TextBlock Grid.Row="1" Grid.Column="2" Text="Scenes:" FontWeight="SemiBold" Margin="24,2,8,2"/>
-                <TextBlock Grid.Row="1" Grid.Column="3" x:Name="TxtScenes" Text="—" Margin="0,2"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Images:"
+                           Foreground="{StaticResource BrushTextLabel}" Margin="0,2,8,2"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TxtImages" Text="—"
+                           Foreground="{StaticResource BrushTextPrimary}" Margin="0,2"/>
+                <TextBlock Grid.Row="1" Grid.Column="2" Text="Scenes:"
+                           Foreground="{StaticResource BrushTextLabel}" Margin="24,2,8,2"/>
+                <TextBlock Grid.Row="1" Grid.Column="3" x:Name="TxtScenes" Text="—"
+                           Foreground="{StaticResource BrushTextPrimary}" Margin="0,2"/>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Duration:" FontWeight="SemiBold" Margin="0,2,8,2"/>
-                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TxtDuration" Text="—" Margin="0,2"/>
-                <TextBlock Grid.Row="2" Grid.Column="2" Text="Warnings:" FontWeight="SemiBold" Margin="24,2,8,2"/>
-                <TextBlock Grid.Row="2" Grid.Column="3" x:Name="TxtWarningCount" Text="—" Margin="0,2"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Duration:"
+                           Foreground="{StaticResource BrushTextLabel}" Margin="0,2,8,2"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TxtDuration" Text="—"
+                           Foreground="{StaticResource BrushTextPrimary}" Margin="0,2"/>
+                <TextBlock Grid.Row="2" Grid.Column="2" Text="Warnings:"
+                           Foreground="{StaticResource BrushTextLabel}" Margin="24,2,8,2"/>
+                <TextBlock Grid.Row="2" Grid.Column="3" x:Name="TxtWarningCount" Text="—"
+                           Foreground="{StaticResource BrushTextPrimary}" Margin="0,2"/>
             </Grid>
         </Border>
 
@@ -77,13 +94,18 @@
                           IsChecked="True" Margin="0,2"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
-                <TextBlock Text="Min duration:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <TextBox x:Name="TxtMinDuration" Width="56" Padding="3,2" Text="2.5"/>
-                <TextBlock Text="Preferred:" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                <TextBox x:Name="TxtPreferredDuration" Width="56" Padding="3,2" Text="5.0"/>
+                <TextBlock Text="Min duration:"
+                           Foreground="{StaticResource BrushTextLabel}"
+                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox x:Name="TxtMinDuration" Width="56" Text="2.5"/>
+                <TextBlock Text="Preferred:"
+                           Foreground="{StaticResource BrushTextLabel}"
+                           VerticalAlignment="Center" Margin="12,0,6,0"/>
+                <TextBox x:Name="TxtPreferredDuration" Width="56" Text="5.0"/>
             </StackPanel>
             <Button Grid.Column="2" x:Name="BtnSettings" Content="Settings…"
-                    Padding="10,3" HorizontalAlignment="Right" Click="BtnSettings_Click"/>
+                    Style="{StaticResource SecondaryButton}"
+                    HorizontalAlignment="Right" Click="BtnSettings_Click"/>
         </Grid>
 
         <Grid Grid.Row="4" Margin="0,0,0,10">
@@ -94,22 +116,45 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <Button Grid.Column="0" x:Name="BtnAnalyze" Content="ANALYZE PROJECT"
-                    Padding="10,6" Margin="0,0,6,0" Click="BtnAnalyze_Click"/>
+                    Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" Click="BtnAnalyze_Click"/>
             <Button Grid.Column="1" x:Name="BtnBuild" Content="BUILD PREVIEW"
-                    Padding="10,6" Margin="0,0,6,0" IsEnabled="False" Click="BtnBuild_Click"/>
+                    Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" IsEnabled="False" Click="BtnBuild_Click"/>
             <Button Grid.Column="2" x:Name="BtnExport" Content="EXPORT TO PREMIERE"
-                    Padding="10,6" Margin="0,0,6,0" IsEnabled="False" Click="BtnExport_Click"/>
+                    Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" IsEnabled="False" Click="BtnExport_Click"/>
             <Button Grid.Column="3" x:Name="BtnCancel" Content="Cancel"
-                    Padding="10,6" IsEnabled="False" Click="BtnCancel_Click"/>
+                    Style="{StaticResource SecondaryButton}" IsEnabled="False" Click="BtnCancel_Click"/>
         </Grid>
 
-        <GroupBox Grid.Row="5" Header="Diagnostics" Padding="6">
-            <ListBox x:Name="LstIssues" FontFamily="Consolas" FontSize="12"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+        <GroupBox Grid.Row="5" Header="Diagnostics">
+            <ListBox x:Name="LstIssues"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <ContentPresenter/>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{Binding TintBrush}"
+                                CornerRadius="4" Padding="8,4" Margin="0,2">
+                            <TextBlock Text="{Binding Text}"
+                                       Foreground="{Binding TextBrush}"
+                                       FontFamily="Consolas" FontSize="12"/>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
         </GroupBox>
 
         <StackPanel Grid.Row="6" Margin="0,10,0,0">
             <TextBlock x:Name="TxtStatus" Text="Ready."
+                       Foreground="{StaticResource BrushTextPrimary}"
                        TextWrapping="Wrap" MaxHeight="64"
                        VerticalAlignment="Top"/>
             <ProgressBar x:Name="PbRender" Height="16"
