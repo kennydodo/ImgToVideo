@@ -120,5 +120,19 @@ public class PreviewRenderServiceTests : IDisposable
         Assert.True(new FileInfo(previewPath).Length > 1000);
     }
 
+    [Fact]
+    public async Task Probes_wav_duration_when_ffmpeg_available()
+    {
+        if (!FFmpegProbe.IsAvailable)
+        {
+            return;
+        }
+
+        var wav = _project.WriteSilenceWav("probe.wav", 2.0);
+        var seconds = await new Ffprobe().GetDurationSecondsAsync(wav);
+
+        Assert.Equal(2.0, seconds, 2);
+    }
+
     public void Dispose() => _project.Dispose();
 }

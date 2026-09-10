@@ -359,6 +359,18 @@ Refinements made while implementing phases 1–7; these refine the rules above.
   this is the recorded fallback if the phase-0 spike shows Premiere drops imported keyframes
 - Built with System.Xml.Linq, so names/paths are XML-escaped by construction
 
+**WPF shell (§11, phase 11)**
+- `MainWindow` implements the mocked UI: project folder (browse + last-folder persistence),
+  analyze (loads `imgtovideo.json`, builds the inventory, shows stats + diagnostics, probes audio
+  duration via ffprobe), build preview (plan → `out\timeline.json` → parallel segment render with
+  progress bar and cancel), export Premiere (`out\premiere.xml`), plus quick toggles for auto
+  motion and crossfades and min/preferred duration fields
+- `SettingsWindow` edits the full `ProjectOptions` (durations, motion ranges, transitions, file
+  naming with a live `FormatExample()` preview, output, scene inference, render/tool paths),
+  validates via `ProjectOptions.Validate()` before accepting, and saves to `imgtovideo.json`
+- `Ffprobe.GetDurationSecondsAsync` supplies the audio master clock to the planner; the app never
+  parses audio itself
+
 ## 12. Export targets reality
 
 ### Premiere Pro (primary "editable timeline" target)

@@ -1,0 +1,122 @@
+<Window x:Class="ImgToVideo.App.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ImgToVideo — Settings"
+        Height="640" Width="560"
+        MinHeight="520" MinWidth="480"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="BtnSave" Content="Save" Padding="16,4" Margin="0,0,8,0" Click="BtnSave_Click"/>
+            <Button x:Name="BtnCancel" Content="Cancel" Padding="16,4" IsCancel="True"/>
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <GroupBox Header="Image durations (seconds)" Padding="8" Margin="0,0,0,8">
+                    <UniformGrid Columns="2">
+                        <TextBlock Text="Minimum" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtTimingMin" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Preferred" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtTimingPreferred" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Maximum" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtTimingMax" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Overflow floor" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtTimingFloor" Padding="3,2" Margin="0,2,12,2"/>
+                    </UniformGrid>
+                </GroupBox>
+
+                <GroupBox Header="Motion" Padding="8" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="ChkAutoMotion" Content="Automatic zoom and pan (unsuffixed images)"
+                                  Margin="0,2,0,6"/>
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Push-in start %" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtPushInStart" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Push-in end %" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtPushInEnd" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Zoom-out start %" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtZoomOutStart" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Zoom-out end %" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtZoomOutEnd" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Pan max travel (% frame)" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtPanTravel" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Static every N shots (min/max)" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBox x:Name="TxtStaticMin" Width="48" Padding="3,2" Margin="0,2,6,2"/>
+                                <TextBox x:Name="TxtStaticMax" Width="48" Padding="3,2" Margin="0,2,12,2"/>
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Transitions" Padding="8" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="ChkTransitionsEnabled" Content="Crossfade between clips" Margin="0,2,0,6"/>
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Crossfade duration (seconds)" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtTransitionDuration" Padding="3,2" Margin="0,2,12,2"/>
+                        </UniformGrid>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="File naming" Padding="8" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="ChkMotionCodes" Content="Motion codes enabled (…_ZI/_PR suffixes)"
+                                  Margin="0,2,0,6"/>
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Scene prefix" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtScenePrefix" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Number padding" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtNumberPadding" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Separator" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtSeparator" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Extensions (comma separated)" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtExtensions" Padding="3,2" Margin="0,2,12,2"/>
+                        </UniformGrid>
+                        <TextBlock x:Name="TxtNamingExample" Text="Example: S08_02_PR"
+                                   Foreground="#666" Margin="0,6,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Output" Padding="8" Margin="0,0,0,8">
+                    <UniformGrid Columns="2">
+                        <TextBlock Text="Width" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtOutputWidth" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Height" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtOutputHeight" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="FPS" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtOutputFps" Padding="3,2" Margin="0,2,12,2"/>
+                    </UniformGrid>
+                </GroupBox>
+
+                <GroupBox Header="Scene inference" Padding="8" Margin="0,0,0,8">
+                    <UniformGrid Columns="2">
+                        <TextBlock Text="Sentence gap (seconds)" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtSentenceGap" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Terminal punctuation gap (seconds)" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtTerminalGap" Padding="3,2" Margin="0,2,12,2"/>
+                    </UniformGrid>
+                </GroupBox>
+
+                <GroupBox Header="Render &amp; tools" Padding="8">
+                    <UniformGrid Columns="2">
+                        <TextBlock Text="Preview width" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtPreviewWidth" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Preview height" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtPreviewHeight" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Preview preset" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtPreviewPreset" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Preview CRF" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtPreviewCrf" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="ffmpeg path" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtFfmpegPath" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="ffprobe path" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtFfprobePath" Padding="3,2" Margin="0,2,12,2"/>
+                    </UniformGrid>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

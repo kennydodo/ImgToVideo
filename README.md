@@ -8,16 +8,20 @@ See [docs/generation-spec.md](docs/generation-spec.md) for the image generation 
 
 ## Status
 
-- Phases 1–10 done: core models, timeline JSON round-trip, SRT parser, configurable filename
-  parser, natural sort, project loader/inventory, scene inference + scenes.json override, timing
-  engine (frame-exact coverage), motion engine (deterministic state machine + viewport math), the
-  edit planner that assembles `timeline.json`, the FFmpeg renderer, crossfade transitions, and the
-  Premiere FCP7 XML exporter (with motion keyframes + cuts-only fallback) — 129 unit tests
-- Requires ffmpeg on PATH (or set in render settings) for preview rendering; install with
-  `winget install Gyan.FFmpeg` or download from https://ffmpeg.org
-- Manual spikes pending: phase 0 (import the exported XML into Premiere, verify motion keyframes
-  survive — fallback: `IncludeMotionKeyframes = false`), phase 0b (CapCut draft study)
-- Next: phase 11 (WPF shell + settings pages), CapCut tier 1/2 exporters
+- Phases 1–11 done — the app is end-to-end usable: `dotnet run --project src/ImgToVideo.App`,
+  pick a project folder, Analyze → Build Preview → Export to Premiere
+- Core: models, timeline JSON round-trip, SRT parser, configurable filename parser, natural sort,
+  project loader/inventory, scene inference + scenes.json override, timing engine (frame-exact
+  coverage), deterministic motion engine (viewport rects), edit planner, validated options
+- Ffmpeg: preview render plan (supersampled zoompan, crossfade joins), runner with
+  progress/cancel, ffprobe audio duration
+- Premiere: FCP7 XML exporter with motion keyframes + cuts-only fallback
+- WPF shell: analyze/build/export UI, diagnostics panel, full settings editor persisted to
+  `imgtovideo.json` — 130 unit tests
+- Requires ffmpeg/ffprobe on PATH (or set in Settings); install with `winget install Gyan.FFmpeg`
+- Manual spikes pending: phase 0 (import exported XML into Premiere, verify keyframes — fallback
+  is `IncludeMotionKeyframes = false`), phase 0b (CapCut draft study)
+- Next: CapCut tier 1/2 exporters, build-report.json, final-quality render option
 
 ## Build
 
