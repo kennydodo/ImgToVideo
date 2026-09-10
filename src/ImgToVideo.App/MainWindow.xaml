@@ -108,15 +108,12 @@
                      ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
         </GroupBox>
 
-        <Grid Grid.Row="6" Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="200"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" x:Name="TxtStatus" Text="Ready."
-                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-            <ProgressBar Grid.Column="1" x:Name="PbRender" Height="16"
-                         Minimum="0" Maximum="100" Value="0"/>
-        </Grid>
+        <StackPanel Grid.Row="6" Margin="0,10,0,0">
+            <TextBlock x:Name="TxtStatus" Text="Ready."
+                       TextWrapping="Wrap" MaxHeight="64"
+                       VerticalAlignment="Top"/>
+            <ProgressBar x:Name="PbRender" Height="16"
+                         Minimum="0" Maximum="100" Value="0" Margin="0,8,0,0"/>
+        </StackPanel>
     </Grid>
 </Window>

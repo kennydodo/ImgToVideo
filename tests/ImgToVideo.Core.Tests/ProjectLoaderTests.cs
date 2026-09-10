@@ -116,6 +116,56 @@ public class ProjectLoaderTests : IDisposable
     }
 
     [Fact]
+    public void Finds_audio_and_srt_with_any_file_name()
+    {
+        _project.WriteImage("S01_01.png", 2304, 1296);
+        _project.WriteFile("voice_take3.mp3", "fake audio");
+        _project.WriteFile(
+            "final_subs.srt",
+            "1\n00:00:00,000 --> 00:00:02,000\nHello.\n");
+
+        var inventory = ProjectLoader.Load(_project.Path);
+
+        Assert.False(ValidationIssue.HasErrors(inventory.Issues));
+        Assert.EndsWith("voice_take3.mp3", inventory.AudioFilePath);
+        Assert.EndsWith("final_subs.srt", inventory.SrtFilePath);
+        Assert.DoesNotContain(inventory.Issues, i => i.Code == "AUDIO_AMBIGUOUS");
+        Assert.DoesNotContain(inventory.Issues, i => i.Code == "SRT_AMBIGUOUS");
+    }
+
+    [Fact]
+    public void Info_when_multiple_audio_files_exist()
+    {
+        _project.WriteImage("S01_01.png", 2304, 1296);
+        _project.WriteSrt();
+        _project.WriteFile("audio\\track_b.mp3", "fake audio");
+        _project.WriteFile("audio\\track_a.mp3", "fake audio");
+
+        var inventory = ProjectLoader.Load(_project.Path);
+
+        Assert.Contains(inventory.Issues, i =>
+            i.Code == "AUDIO_AMBIGUOUS" && i.Message.Contains("track_a.mp3"));
+        Assert.EndsWith("track_a.mp3", inventory.AudioFilePath);
+    }
+
+    [Fact]
+    public void Info_when_multiple_srt_files_exist()
+    {
+        _project.WriteImage("S01_01.png", 2304, 1296);
+        _project.WriteAudio();
+        _project.WriteSrt();
+        _project.WriteFile(
+            "alt.srt",
+            "1\n00:00:00,000 --> 00:00:01,000\nAlt.\n");
+
+        var inventory = ProjectLoader.Load(_project.Path);
+
+        Assert.Contains(inventory.Issues, i =>
+            i.Code == "SRT_AMBIGUOUS" && i.Message.Contains("alt.srt"));
+        Assert.Single(inventory.Subtitles);
+    }
+
+    [Fact]
     public void Warns_about_unknown_motion_code()
     {
         _project.WriteImage("S01_01_XX.png", 2304, 1296);

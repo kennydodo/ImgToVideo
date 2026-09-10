@@ -55,67 +55,57 @@ public static class ProjectLoader
                 continue;
             }
 
-            var named = Directory.EnumerateFiles(dir, "narration.*")
+            var candidates = Directory.EnumerateFiles(dir)
                 .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                .OrderBy(f => f, NaturalSortComparer.Instance)
-                .FirstOrDefault();
-            if (named is not null)
-            {
-                return named;
-            }
-        }
+                .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
+                .ToList();
 
-        foreach (var dir in new[] { audioDir, projectFolder })
-        {
-            if (!Directory.Exists(dir))
+            if (candidates.Count == 0)
             {
                 continue;
             }
 
-            var any = Directory.EnumerateFiles(dir)
-                .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
-                .FirstOrDefault();
-            if (any is not null)
+            if (candidates.Count > 1)
             {
                 issues.Add(new ValidationIssue(
-                    ValidationSeverity.Info, "AUDIO_FALLBACK",
-                    $"No narration.* audio found; using \"{Path.GetFileName(any)}\"."));
-                return any;
+                    ValidationSeverity.Info, "AUDIO_AMBIGUOUS",
+                    $"Multiple audio files found in \"{Path.GetFileName(dir)}\"; " +
+                    $"using \"{Path.GetFileName(candidates[0])}\"."));
             }
+
+            return candidates[0];
         }
 
         issues.Add(new ValidationIssue(
             ValidationSeverity.Error, "AUDIO_MISSING",
-            "No narration audio found (expected audio\\narration.mp3 or narration.mp3 in the project root)."));
+            "No audio file (.mp3, .wav, …) found in the \"audio\" folder or the project root."));
         return null;
     }
 
     private static string? FindSrt(string projectFolder, List<ValidationIssue> issues)
     {
-        var preferred = Path.Combine(projectFolder, "narration.srt");
-        if (File.Exists(preferred))
+        if (Directory.Exists(projectFolder))
         {
-            return preferred;
-        }
-
-        var any = Directory.Exists(projectFolder)
-            ? Directory.EnumerateFiles(projectFolder, "*.srt")
+            var candidates = Directory.EnumerateFiles(projectFolder, "*.srt")
                 .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
-                .FirstOrDefault()
-            : null;
+                .ToList();
 
-        if (any is not null)
-        {
-            issues.Add(new ValidationIssue(
-                ValidationSeverity.Info, "SRT_FALLBACK",
-                $"No narration.srt found; using \"{Path.GetFileName(any)}\"."));
-            return any;
+            if (candidates.Count > 1)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Info, "SRT_AMBIGUOUS",
+                    $"Multiple subtitle files found; using \"{Path.GetFileName(candidates[0])}\"."));
+            }
+
+            if (candidates.Count > 0)
+            {
+                return candidates[0];
+            }
         }
 
         issues.Add(new ValidationIssue(
             ValidationSeverity.Error, "SRT_MISSING",
-            "No SRT subtitle file found (expected narration.srt in the project root)."));
+            "No subtitle file (.srt) found in the project folder."));
         return null;
     }
 
