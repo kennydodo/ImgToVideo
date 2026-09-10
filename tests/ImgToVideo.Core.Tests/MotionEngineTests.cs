@@ -127,82 +127,128 @@ public class MotionEngineTests
     [Fact]
     public void Pan_up_spans_full_vertical_travel()
     {
-        var result = CreateEngine().ComputeViewports(
+        var plan = CreateEngine().PlanClip(
             MotionType.PanUp, MotionSource.ExplicitCode, true, 2304, 2160);
 
-        Assert.Equal(new Rect(192, 1080, 1920, 1080), result.Start);
-        Assert.Equal(new Rect(192, 0, 1920, 1080), result.End);
-        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 2160)));
-        Assert.DoesNotContain(result.Warnings, w => w.Contains("below"));
+        Assert.Equal(MotionType.PanUp, plan.Motion);
+        Assert.Equal(new Rect(0, 864, 2304, 1296), plan.Start);
+        Assert.Equal(new Rect(0, 0, 2304, 1296), plan.End);
+        Assert.True(plan.End.IsInside(new Rect(0, 0, 2304, 2160)));
     }
 
     [Fact]
     public void Pan_down_spans_full_vertical_travel()
     {
-        var result = CreateEngine().ComputeViewports(
+        var plan = CreateEngine().PlanClip(
             MotionType.PanDown, MotionSource.ExplicitCode, true, 2304, 2160);
 
-        Assert.Equal(0, result.Start.Y);
-        Assert.Equal(1080, result.End.Y);
-        Assert.Equal(192, result.Start.X);
-        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 2160)));
+        Assert.Equal(0, plan.Start.Y);
+        Assert.Equal(864, plan.End.Y);
+        Assert.True(plan.End.IsInside(new Rect(0, 0, 2304, 2160)));
     }
 
     [Fact]
-    public void Vertical_pan_on_undersized_image_warns_and_stays_inside()
+    public void Vertical_pan_on_16x9_falls_back_to_push_in()
     {
-        var result = CreateEngine().ComputeViewports(
+        var plan = CreateEngine().PlanClip(
             MotionType.PanDown, MotionSource.ExplicitCode, true, 2304, 1296);
 
-        Assert.Contains(result.Warnings, w => w.Contains("below the 2304x2160 spec"));
-        Assert.True(result.Start.IsInside(new Rect(0, 0, 2304, 1296)));
-        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 1296)));
+        Assert.Equal(MotionType.ZoomIn, plan.Motion);
+        Assert.Equal(new Rect(0, 0, 2304, 1296), plan.Start);
+        Assert.Contains(plan.Warnings, w => w.Contains("No vertical overscan"));
     }
 
     [Fact]
-    public void Static_viewports_are_centered_at_100_percent()
+    public void Static_shows_full_image()
     {
-        var result = CreateEngine().ComputeViewports(
+        var plan = CreateEngine().PlanClip(
             MotionType.Static, MotionSource.AutoSelected, true, 2304, 1296);
 
-        Assert.Equal(new Rect(192, 108, 1920, 1080), result.Start);
-        Assert.Equal(result.Start, result.End);
-        Assert.Empty(result.Warnings);
+        Assert.Equal(new Rect(0, 0, 2304, 1296), plan.Start);
+        Assert.Equal(plan.Start, plan.End);
+        Assert.Empty(plan.Warnings);
     }
 
     [Fact]
-    public void Zoom_in_shrinks_viewport_and_stays_inside_image()
+    public void Static_on_16x9_without_oversize_shows_full_image()
     {
-        var result = CreateEngine().ComputeViewports(
+        var plan = CreateEngine().PlanClip(
+            MotionType.Static, MotionSource.AutoSelected, true, 1920, 1080);
+
+        Assert.Equal(new Rect(0, 0, 1920, 1080), plan.Start);
+        Assert.Equal(plan.Start, plan.End);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void Static_on_tall_image_fits_whole_image()
+    {
+        var plan = CreateEngine().PlanClip(
+            MotionType.Static, MotionSource.AutoSelected, true, 1024, 1536);
+
+        Assert.Equal(MotionType.Static, plan.Motion);
+        Assert.Equal(new Rect(0, 0, 1024, 1536), plan.Start);
+        Assert.Equal(plan.Start, plan.End);
+    }
+
+    [Fact]
+    public void Zoom_in_pushes_into_full_image()
+    {
+        var plan = CreateEngine().PlanClip(
             MotionType.ZoomIn, MotionSource.AutoSelected, true, 2304, 1296);
 
-        Assert.True(result.Start.IsInside(new Rect(0, 0, 2304, 1296)));
-        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 1296)));
-        Assert.True(result.End.Width < result.Start.Width);
-        Assert.Equal(1920 * 100.0 / 106.0, result.End.Width, 3);
+        Assert.Equal(new Rect(0, 0, 2304, 1296), plan.Start);
+        Assert.True(plan.End.IsInside(new Rect(0, 0, 2304, 1296)));
+        Assert.True(plan.End.Width < plan.Start.Width);
+        Assert.Equal(2304 * 100.0 / 106.0, plan.End.Width, 3);
     }
 
     [Fact]
-    public void Explicit_pan_right_spans_full_available_travel()
+    public void Zoom_on_tall_image_zooms_the_letterbox_canvas()
     {
-        var result = CreateEngine().ComputeViewports(
+        var plan = CreateEngine().PlanClip(
+            MotionType.ZoomIn, MotionSource.ExplicitCode, true, 1024, 1536);
+
+        Assert.Equal(MotionType.ZoomIn, plan.Motion);
+        Assert.Equal(2730, plan.Start.Width);
+        Assert.Equal(1536, plan.Start.Height);
+        Assert.Equal(853, plan.Start.X);
+        Assert.True(plan.End.Width < plan.Start.Width);
+        Assert.True(plan.End.IsInside(plan.Start));
+    }
+
+    [Fact]
+    public void Explicit_pan_right_pans_within_fit_bounds()
+    {
+        var plan = CreateEngine().PlanClip(
             MotionType.PanRight, MotionSource.ExplicitCode, true, 2880, 1296);
 
-        Assert.Equal(0, result.Start.X);
-        Assert.Equal(960, result.End.X);
-        Assert.Equal(1080, result.Start.Height);
-        Assert.True(result.End.IsInside(new Rect(0, 0, 2880, 1296)));
+        Assert.Equal(MotionType.PanRight, plan.Motion);
+        Assert.Equal(new Rect(0, 0, 2304, 1296), plan.Start);
+        Assert.Equal(new Rect(576, 0, 2304, 1296), plan.End);
+        Assert.True(plan.End.IsInside(new Rect(0, 0, 2880, 1296)));
     }
 
     [Fact]
-    public void Auto_pan_travel_is_capped_by_options()
+    public void Pan_right_on_16x9_without_overscan_falls_back_to_push_in()
     {
-        var result = CreateEngine().ComputeViewports(
+        var plan = CreateEngine().PlanClip(
+            MotionType.PanRight, MotionSource.ExplicitCode, true, 1920, 1080);
+
+        Assert.Equal(MotionType.ZoomIn, plan.Motion);
+        Assert.Equal(new Rect(0, 0, 1920, 1080), plan.Start);
+        Assert.Contains(plan.Warnings, w => w.Contains("No horizontal overscan"));
+    }
+
+    [Fact]
+    public void Auto_pan_on_16x9_falls_back_to_push_in()
+    {
+        var plan = CreateEngine().PlanClip(
             MotionType.PanLeft, MotionSource.AutoSelected, true, 2304, 1296);
 
-        var expectedTravel = 0.04 * 1920;
-        Assert.Equal((2304.0 - 1920) / 2 + expectedTravel / 2, result.Start.X, 3);
-        Assert.Equal((2304.0 - 1920) / 2 - expectedTravel / 2, result.End.X, 3);
+        Assert.Equal(MotionType.ZoomIn, plan.Motion);
+        Assert.Equal(new Rect(0, 0, 2304, 1296), plan.Start);
+        Assert.Contains(plan.Warnings, w => w.Contains("No horizontal overscan"));
     }
 
     [Fact]
@@ -210,35 +256,14 @@ public class MotionEngineTests
     {
         var engine = CreateEngine();
 
-        var leftToRight = engine.ComputeViewports(
+        var leftToRight = engine.PlanClip(
             MotionType.PanReveal, MotionSource.ExplicitCode, true, 3840, 1296);
         Assert.Equal(0, leftToRight.Start.X);
-        Assert.Equal(1920, leftToRight.End.X);
+        Assert.Equal(1536, leftToRight.End.X);
 
-        var rightToLeft = engine.ComputeViewports(
+        var rightToLeft = engine.PlanClip(
             MotionType.PanReveal, MotionSource.ExplicitCode, false, 3840, 1296);
-        Assert.Equal(1920, rightToLeft.Start.X);
+        Assert.Equal(1536, rightToLeft.Start.X);
         Assert.Equal(0, rightToLeft.End.X);
-    }
-
-    [Fact]
-    public void Undersized_pan_image_produces_warning()
-    {
-        var result = CreateEngine().ComputeViewports(
-            MotionType.PanRight, MotionSource.ExplicitCode, true, 2304, 1296);
-
-        Assert.Contains(result.Warnings, w => w.Contains("below the 2880x1296 spec"));
-        Assert.True(result.Start.IsInside(new Rect(0, 0, 2304, 1296)));
-        Assert.True(result.End.IsInside(new Rect(0, 0, 2304, 1296)));
-    }
-
-    [Fact]
-    public void Viewports_are_clamped_for_oversized_height()
-    {
-        var result = CreateEngine().ComputeViewports(
-            MotionType.Static, MotionSource.AutoSelected, true, 1000, 4000);
-
-        Assert.True(result.Start.IsInside(new Rect(0, 0, 1000, 4000)));
-        Assert.NotEmpty(result.Warnings);
     }
 }

@@ -13,11 +13,16 @@ public sealed record MotionContext(
 
 public sealed record MotionDecision(MotionType Motion, MotionSource Source);
 
-public sealed record ViewportResult(Rect Start, Rect End, IReadOnlyList<string> Warnings);
+public sealed record ClipMotionPlan(
+    MotionType Motion,
+    MotionSource Source,
+    Rect Start,
+    Rect End,
+    IReadOnlyList<string> Warnings);
 
 public sealed class MotionEngine
 {
-    private const double MarginFactor = 1.2;
+    private const double MinTravelPixels = 32;
     private static readonly MotionType[] AutoPool = [MotionType.Static, MotionType.ZoomIn, MotionType.ZoomOut, MotionType.PanLeft, MotionType.PanRight];
 
     private readonly MotionOptions _motion;
@@ -54,9 +59,7 @@ public sealed class MotionEngine
         }
 
         if (ctx.ShotsSinceStatic >= Math.Max(1, _motion.StaticEveryMaxShots) ||
-            (ctx.ShotsSinceStatic >= _motion.StaticEveryMinShots &&
-             ctx.Previous is MotionType.PanLeft or MotionType.PanRight
-                 or MotionType.PanUp or MotionType.PanDown))
+            (ctx.ShotsSinceStatic >= _motion.StaticEveryMinShots && IsPan(ctx.Previous)))
         {
             return new MotionDecision(MotionType.Static, MotionSource.AutoSelected);
         }
@@ -83,7 +86,7 @@ public sealed class MotionEngine
         return new MotionDecision(PickFirstNotPrevious(AutoPool, ctx.Previous), MotionSource.AutoSelected);
     }
 
-    public ViewportResult ComputeViewports(
+    public ClipMotionPlan PlanClip(
         MotionType motion,
         MotionSource source,
         bool panRight,
@@ -91,160 +94,166 @@ public sealed class MotionEngine
         int imageHeight)
     {
         var warnings = new List<string>();
-        var aspect = (double)_output.Width / _output.Height;
+        var outAspect = (double)_output.Width / _output.Height;
+        var imageAspect = (double)imageWidth / imageHeight;
+        var fullRect = new Rect(0, 0, imageWidth, imageHeight);
 
-        double viewportHeight;
-        double viewportWidth;
-        if (motion is MotionType.PanUp or MotionType.PanDown)
+        var fitWidth = imageAspect > outAspect ? imageHeight * outAspect : imageWidth;
+        var fitHeight = imageAspect > outAspect ? imageHeight : imageWidth / outAspect;
+        var spareX = imageWidth - fitWidth;
+        var spareY = imageHeight - fitHeight;
+
+        switch (motion)
         {
-            viewportWidth = imageWidth / MarginFactor;
-            viewportHeight = viewportWidth / aspect;
-        }
-        else
-        {
-            viewportHeight = imageHeight / MarginFactor;
-            viewportWidth = viewportHeight * aspect;
-        }
+            case MotionType.Static:
+                return new ClipMotionPlan(motion, source, fullRect, fullRect, warnings);
 
-        if (viewportWidth > imageWidth)
-        {
-            viewportWidth = imageWidth;
-            viewportHeight = viewportWidth / aspect;
-            warnings.Add(
-                $"Image is narrower than the {MarginFactor:F1}x margin spec; viewport clamped to image width.");
-        }
-
-        if (viewportHeight > imageHeight)
-        {
-            viewportHeight = imageHeight;
-            viewportWidth = viewportHeight * aspect;
-            warnings.Add("Image is shorter than the margin spec; viewport clamped to image height.");
-        }
-
-        var minSize = MotionCodes.MinimumSize(motion);
-        if (imageWidth < minSize.Width || imageHeight < minSize.Height)
-        {
-            warnings.Add(
-                $"Image ({imageWidth}x{imageHeight}) is below the {minSize.Width}x{minSize.Height} " +
-                $"spec for {motion}; movement range is limited.");
-        }
-
-        var result = motion switch
-        {
-            MotionType.Static => StaticViewports(viewportWidth, viewportHeight, imageWidth, imageHeight),
-            MotionType.ZoomIn => ZoomViewports(
-                _motion.PushInStartPercent, _motion.PushInEndPercent, viewportWidth, viewportHeight, imageWidth, imageHeight),
-            MotionType.ZoomOut => ZoomViewports(
-                _motion.ZoomOutStartPercent, _motion.ZoomOutEndPercent, viewportWidth, viewportHeight, imageWidth, imageHeight),
-            _ => PanViewports(motion, source, panRight, viewportWidth, viewportHeight, imageWidth, imageHeight, warnings),
-        };
-
-        return new ViewportResult(result.Start, result.End, warnings);
-    }
-
-    private static ViewportResult VerticalPanViewports(
-        MotionType motion, double vpW, double vpH, int imageWidth, int imageHeight)
-    {
-        var available = imageHeight - vpH;
-        var x = (imageWidth - vpW) / 2.0;
-
-        double startY;
-        double endY;
-        if (motion == MotionType.PanUp)
-        {
-            startY = available;
-            endY = 0;
-        }
-        else
-        {
-            startY = 0;
-            endY = available;
-        }
-
-        return new ViewportResult(
-            new Rect(x, startY, vpW, vpH),
-            new Rect(x, endY, vpW, vpH),
-            []);
-    }
-
-    private static ViewportResult StaticViewports(double vpW, double vpH, int imageWidth, int imageHeight)
-    {
-        var centered = Centered(vpW, vpH, imageWidth, imageHeight);
-        return new ViewportResult(centered, centered, []);
-    }
-
-    private ViewportResult ZoomViewports(
-        double startPercent, double endPercent, double vpW, double vpH, int imageWidth, int imageHeight)
-    {
-        var startSize = SizeAtScale(vpW, vpH, startPercent);
-        var endSize = SizeAtScale(vpW, vpH, endPercent);
-        return new ViewportResult(
-            Centered(startSize.Width, startSize.Height, imageWidth, imageHeight),
-            Centered(endSize.Width, endSize.Height, imageWidth, imageHeight),
-            []);
-    }
-
-    private ViewportResult PanViewports(
-        MotionType motion,
-        MotionSource source,
-        bool panRight,
-        double vpW,
-        double vpH,
-        int imageWidth,
-        int imageHeight,
-        List<string> warnings)
-    {
-        if (motion is MotionType.PanUp or MotionType.PanDown)
-        {
-            return VerticalPanViewports(motion, vpW, vpH, imageWidth, imageHeight);
-        }
-
-        var available = imageWidth - vpW;
-        var y = (imageHeight - vpH) / 2.0;
-
-        double startX;
-        double endX;
-
-        if (motion == MotionType.PanReveal)
-        {
-            startX = panRight ? 0 : available;
-            endX = panRight ? available : 0;
-        }
-        else if (source == MotionSource.ExplicitCode)
-        {
-            startX = motion == MotionType.PanRight ? 0 : available;
-            endX = motion == MotionType.PanRight ? available : 0;
-        }
-        else
-        {
-            var travel = Math.Min(_motion.PanMaxTravelPercent / 100.0 * _output.Width, available);
-            var center = available / 2.0;
-            if (motion == MotionType.PanRight)
+            case MotionType.ZoomIn:
+            case MotionType.ZoomOut:
             {
-                startX = center - travel / 2.0;
-                endX = center + travel / 2.0;
+                var baseRect = CanvasRect(imageWidth, imageHeight, outAspect);
+                var startPercent = motion == MotionType.ZoomIn
+                    ? _motion.PushInStartPercent
+                    : _motion.ZoomOutStartPercent;
+                var endPercent = motion == MotionType.ZoomIn
+                    ? _motion.PushInEndPercent
+                    : _motion.ZoomOutEndPercent;
+
+                var start = ShrinkAroundCenter(baseRect, 100.0 / startPercent);
+                var end = ShrinkAroundCenter(baseRect, 100.0 / endPercent);
+                if (motion == MotionType.ZoomOut)
+                {
+                    (start, end) = (end, start);
+                }
+
+                return new ClipMotionPlan(motion, source, start, end, warnings);
             }
-            else
+
+            case MotionType.PanLeft:
+            case MotionType.PanRight:
+            case MotionType.PanReveal:
             {
-                startX = center + travel / 2.0;
-                endX = center - travel / 2.0;
+                if (spareX < MinTravelPixels)
+                {
+                    return PushInFallback(
+                        $"No horizontal overscan for {motion} (image {imageWidth}x{imageHeight}); " +
+                        "using a gentle push-in instead — generate a 150%-wide image (2880x1296) to pan.",
+                        panRight, imageWidth, imageHeight);
+                }
+
+                var y = (imageHeight - fitHeight) / 2.0;
+                double startX;
+                double endX;
+                if (motion == MotionType.PanReveal)
+                {
+                    startX = panRight ? 0 : spareX;
+                    endX = panRight ? spareX : 0;
+                }
+                else if (source == MotionSource.ExplicitCode)
+                {
+                    startX = motion == MotionType.PanRight ? 0 : spareX;
+                    endX = motion == MotionType.PanRight ? spareX : 0;
+                }
+                else
+                {
+                    var capped = Math.Min(_motion.PanMaxTravelPercent / 100.0 * _output.Width, spareX);
+                    var center = spareX / 2.0;
+                    if (motion == MotionType.PanRight)
+                    {
+                        startX = center - capped / 2.0;
+                        endX = center + capped / 2.0;
+                    }
+                    else
+                    {
+                        startX = center + capped / 2.0;
+                        endX = center - capped / 2.0;
+                    }
+                }
+
+                return new ClipMotionPlan(
+                    motion, source,
+                    new Rect(startX, y, fitWidth, fitHeight),
+                    new Rect(endX, y, fitWidth, fitHeight),
+                    warnings);
             }
+
+            case MotionType.PanUp:
+            case MotionType.PanDown:
+            {
+                if (spareY < MinTravelPixels)
+                {
+                    return PushInFallback(
+                        $"No vertical overscan for {motion} (image {imageWidth}x{imageHeight}); " +
+                        "using a gentle push-in instead — generate a 200%-tall image (2304x2160) to pan.",
+                        panRight, imageWidth, imageHeight);
+                }
+
+                var x = (imageWidth - fitWidth) / 2.0;
+                double startY;
+                double endY;
+                if (motion == MotionType.PanUp)
+                {
+                    startY = spareY;
+                    endY = 0;
+                }
+                else
+                {
+                    startY = 0;
+                    endY = spareY;
+                }
+
+                return new ClipMotionPlan(
+                    motion, source,
+                    new Rect(x, startY, fitWidth, fitHeight),
+                    new Rect(x, endY, fitWidth, fitHeight),
+                    warnings);
+            }
+
+            default:
+                return new ClipMotionPlan(motion, source, fullRect, fullRect, warnings);
         }
-
-        startX = Math.Clamp(startX, 0, Math.Max(0, available));
-        endX = Math.Clamp(endX, 0, Math.Max(0, available));
-
-        return new ViewportResult(
-            new Rect(startX, y, vpW, vpH),
-            new Rect(endX, y, vpW, vpH),
-            warnings);
     }
 
-    private static Rect Centered(double width, double height, int imageWidth, int imageHeight) =>
-        new((imageWidth - width) / 2.0, (imageHeight - height) / 2.0, width, height);
+    private ClipMotionPlan PushInFallback(
+        string warning, bool panRight, int imageWidth, int imageHeight)
+    {
+        var fallback = PlanClip(
+            MotionType.ZoomIn, MotionSource.AutoSelected, panRight, imageWidth, imageHeight);
+        var warnings = new List<string> { warning };
+        warnings.AddRange(fallback.Warnings);
+        return fallback with { Warnings = warnings };
+    }
 
-    private static (double Width, double Height) SizeAtScale(double vpW, double vpH, double percent) =>
-        (vpW * 100.0 / percent, vpH * 100.0 / percent);
+    private static bool IsPan(MotionType? motion) =>
+        motion is MotionType.PanLeft or MotionType.PanRight or MotionType.PanUp or MotionType.PanDown;
+
+    private static Rect CanvasRect(int imageWidth, int imageHeight, double outAspect)
+    {
+        long canvasWidth;
+        long canvasHeight;
+        if ((double)imageWidth / imageHeight < outAspect)
+        {
+            canvasHeight = imageHeight;
+            canvasWidth = Even(imageHeight * outAspect);
+        }
+        else
+        {
+            canvasWidth = imageWidth;
+            canvasHeight = Even(imageWidth / outAspect);
+        }
+
+        return new Rect((canvasWidth - imageWidth) / 2.0, (canvasHeight - imageHeight) / 2.0, canvasWidth, canvasHeight);
+    }
+
+    private static Rect ShrinkAroundCenter(Rect rect, double factor) =>
+        new(
+            rect.X + rect.Width * (1 - factor) / 2.0,
+            rect.Y + rect.Height * (1 - factor) / 2.0,
+            rect.Width * factor,
+            rect.Height * factor);
+
+    private static long Even(double value) =>
+        (long)Math.Round(value / 2, MidpointRounding.AwayFromZero) * 2;
 
     private static MotionType PickFirstNotPrevious(IReadOnlyList<MotionType> candidates, MotionType? previous)
     {

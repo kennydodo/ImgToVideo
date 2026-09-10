@@ -51,7 +51,7 @@ public class EditPlannerTests : IDisposable
         Assert.Equal(MotionSource.ExplicitCode, clip4.MotionSource);
         Assert.Equal(453, clip4.StartFrame);
         Assert.Equal(0, clip4.StartViewport.X);
-        Assert.Equal(960, clip4.EndViewport.X);
+        Assert.Equal(576, clip4.EndViewport.X);
 
         Assert.DoesNotContain(result.Issues, i => i.Severity == ValidationSeverity.Warning);
         Assert.DoesNotContain(result.Issues, i => i.Severity == ValidationSeverity.Error);
@@ -66,7 +66,7 @@ public class EditPlannerTests : IDisposable
         var result = Plan();
 
         var clip1 = result.Timeline!.Scenes[0].Clips[0];
-        Assert.Equal(1920 * 100.0 / 106.0, clip1.EndViewport.Width, 3);
+        Assert.Equal(2304 * 100.0 / 106.0, clip1.EndViewport.Width, 3);
         Assert.True(clip1.EndViewport.IsInside(new Rect(0, 0, 2304, 1296)));
     }
 

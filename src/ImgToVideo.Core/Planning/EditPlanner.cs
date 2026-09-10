@@ -280,10 +280,14 @@ public static class EditPlanner
                 }
 
                 var panRight = ctx.Previous != MotionType.PanRight;
-                var viewports = motionEngine.ComputeViewports(
+                var plan = motionEngine.PlanClip(
                     decision.Motion, decision.Source, panRight, image.Width, image.Height);
+                var effectiveMotion = plan.Motion;
+                var effectiveSource = plan.Motion == decision.Motion
+                    ? decision.Source
+                    : MotionSource.AutoSelected;
 
-                foreach (var warning in viewports.Warnings)
+                foreach (var warning in plan.Warnings)
                 {
                     issues.Add(new ValidationIssue(
                         ValidationSeverity.Warning, "VIEWPORT", $"{Path.GetFileName(timed.FilePath)}: {warning}"));
@@ -299,20 +303,24 @@ public static class EditPlanner
                 VideoClip? clip;
                 if (options.Transitions.Enabled && i > 0 && options.Transitions.Kind == TransitionKind.Crossfade)
                 {
-                    clip = MakeClip(timed, image.Name.Type, decision, viewports, new TransitionIn
-                    {
-                        Kind = TransitionKind.Crossfade,
-                        DurationFrames = transitionFrames,
-                    });
+                    clip = MakeClip(timed, image.Name.Type,
+                        new MotionDecision(effectiveMotion, effectiveSource),
+                        plan.Start, plan.End, new TransitionIn
+                        {
+                            Kind = TransitionKind.Crossfade,
+                            DurationFrames = transitionFrames,
+                        });
                 }
                 else
                 {
-                    clip = MakeClip(timed, image.Name.Type, decision, viewports, null);
+                    clip = MakeClip(timed, image.Name.Type,
+                        new MotionDecision(effectiveMotion, effectiveSource),
+                        plan.Start, plan.End, null);
                 }
 
                 sceneClips.Add(clip);
-                previous = decision.Motion;
-                shotsSinceStatic = decision.Motion == MotionType.Static ? 0 : shotsSinceStatic + 1;
+                previous = effectiveMotion;
+                shotsSinceStatic = effectiveMotion == MotionType.Static ? 0 : shotsSinceStatic + 1;
             }
 
             timeline.Scenes.Add(new Scene
@@ -331,7 +339,8 @@ public static class EditPlanner
         TimedClip timed,
         ImageType? imageType,
         MotionDecision decision,
-        ViewportResult viewports,
+        Rect startViewport,
+        Rect endViewport,
         TransitionIn? transition) =>
         new()
         {
@@ -342,8 +351,8 @@ public static class EditPlanner
             Motion = decision.Motion,
             MotionSource = decision.Source,
             ImageType = imageType,
-            StartViewport = viewports.Start,
-            EndViewport = viewports.End,
+            StartViewport = startViewport,
+            EndViewport = endViewport,
             Transition = transition,
         };
 

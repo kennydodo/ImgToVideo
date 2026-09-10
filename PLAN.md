@@ -305,6 +305,20 @@ Refinements made while implementing phases 1–7; these refine the rules above.
 - Over-max branch: the first n−1 clips are capped at max frames and the last clip receives the
   remainder (hold) — exactly one WARNING per sparse scene
 
+**Viewport model v2 — margin is earned, never assumed (fit-based)**
+- The base viewport for ST/ZI/ZO is the **full image** (any aspect); nothing is ever cropped by an
+  assumed margin. Zooms shrink into it (a 6% push-in clips at most ~2.8% per edge at peak)
+- Pans (`PL/PR/PV/PU/PD`) operate on the largest 16:9 band inside the image and travel only
+  through genuinely existing overscan; if the spare dimension is below `MinTravelPixels` (32), the
+  clip falls back to a gentle push-in with a WARNING telling the generator what oversize to use
+- Renderer modes, chosen per clip from the viewports: standard `zoompan` (16:9 viewports inside
+  the image), letterbox `scale+pad` (viewport aspect ≠ output — full non-16:9 image with bars),
+  and canvas mode (viewports extend past the image: pad the image onto the letterbox canvas,
+  then `zoompan` the canvas — bars absorb the zoom so content stays visible)
+- Consequence: images generated per the oversize spec (150% wide pans, 200% tall pans) pan
+  exactly as coded; arbitrary images never lose content — they degrade to push-in/static with a
+  warning instead
+
 **Motion (§7.2)**
 - The auto-selection pool excludes `PV` — a reveal on a normal-composition image has almost no
   travel, so reveals are explicit-code only

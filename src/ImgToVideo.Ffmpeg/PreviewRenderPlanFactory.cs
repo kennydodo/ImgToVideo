@@ -143,26 +143,11 @@ public static class PreviewRenderPlanFactory
                 $"Clip \"{clip.FilePath}\" has an empty render range; cannot render.");
         }
 
-        var render = options.Render;
-        var supersample = sourceWidth < SupersampleThreshold ? SupersampleFactor : 1;
-        var scaledWidth = sourceWidth * supersample;
-        var scaledHeight = sourceHeight * supersample;
-
-        var chain = new List<string>(3);
-        if (supersample > 1)
-        {
-            chain.Add($"scale={scaledWidth}:{scaledHeight}:flags=lanczos");
-        }
-
-        chain.Add(BuildZoompanFilter(
-            clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options));
-        chain.Add("format=yuv420p");
-
         return WrapSegmentArguments(
             new[] { "-i", clip.FilePath },
             null,
-            string.Join(",", chain),
-            pieceCount, render, outputPath);
+            BuildSideChain(clip, sourceWidth, sourceHeight, pieceStart, pieceCount, options),
+            pieceCount, options.Render, outputPath);
     }
 
     private static IReadOnlyList<string> BuildJoinArguments(
@@ -170,13 +155,12 @@ public static class PreviewRenderPlanFactory
         VideoClip incoming, int incomingWidth, int incomingHeight,
         long transitionFrames, ProjectOptions options, string outputPath)
     {
-        var render = options.Render;
         var outTail = transitionFrames / 2;
 
-        var outgoingChain = BuildJoinSideChain(
+        var outgoingChain = BuildSideChain(
             outgoing, outgoingWidth, outgoingHeight,
             pieceStart: outgoing.DurationFrames - outTail, pieceCount: transitionFrames, options);
-        var incomingChain = BuildJoinSideChain(
+        var incomingChain = BuildSideChain(
             incoming, incomingWidth, incomingHeight,
             pieceStart: -outTail, pieceCount: transitionFrames, options);
 
@@ -189,23 +173,63 @@ public static class PreviewRenderPlanFactory
             new[] { "-i", outgoing.FilePath, "-i", incoming.FilePath },
             filterComplex,
             null,
-            transitionFrames, render, outputPath);
+            transitionFrames, options.Render, outputPath);
     }
 
-    private static string BuildJoinSideChain(
+    private static string BuildSideChain(
         VideoClip clip, int sourceWidth, int sourceHeight,
         long pieceStart, long pieceCount, ProjectOptions options)
     {
-        var supersample = sourceWidth < SupersampleThreshold ? SupersampleFactor : 1;
-        var scaledWidth = sourceWidth * supersample;
-        var scaledHeight = sourceHeight * supersample;
+        var outAspect = (double)options.Output.Width / options.Output.Height;
+        var imageBounds = new Rect(0, 0, sourceWidth, sourceHeight);
+        var startAspect = clip.StartViewport.Width / clip.StartViewport.Height;
+        var endAspect = clip.EndViewport.Width / clip.EndViewport.Height;
+        var viewportsMatchOutputAspect =
+            Math.Abs(startAspect - outAspect) <= 0.02 && Math.Abs(endAspect - outAspect) <= 0.02;
 
-        var chain = supersample > 1
-            ? $"scale={scaledWidth}:{scaledHeight}:flags=lanczos," +
-              BuildZoompanFilter(clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options)
-            : BuildZoompanFilter(clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options);
-        return chain;
+        if (!viewportsMatchOutputAspect)
+        {
+            return $"scale={options.Render.PreviewWidth}:{options.Render.PreviewHeight}:" +
+                   "force_original_aspect_ratio=decrease," +
+                   $"pad={options.Render.PreviewWidth}:{options.Render.PreviewHeight}:(ow-iw)/2:(oh-ih)/2," +
+                   "format=yuv420p";
+        }
+
+        var viewportsInsideImage =
+            clip.StartViewport.IsInside(imageBounds) && clip.EndViewport.IsInside(imageBounds);
+
+        if (viewportsInsideImage)
+        {
+            var supersample = sourceWidth < SupersampleThreshold ? SupersampleFactor : 1;
+            var scaledWidth = sourceWidth * supersample;
+            var scaledHeight = sourceHeight * supersample;
+            var chain = supersample > 1
+                ? $"scale={scaledWidth}:{scaledHeight}:flags=lanczos,"
+                : string.Empty;
+            return chain + BuildZoompanFilter(
+                clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
+                ",format=yuv420p";
+        }
+
+        var canvasWidth = Even(Math.Max(
+            Math.Max(clip.StartViewport.Right, clip.EndViewport.Right), sourceWidth));
+        var canvasHeight = Even(Math.Max(
+            Math.Max(clip.StartViewport.Bottom, clip.EndViewport.Bottom), sourceHeight));
+        var supersampleFactor = canvasWidth < SupersampleThreshold ? SupersampleFactor : 1;
+        var scaledCanvasWidth = canvasWidth * supersampleFactor;
+        var scaledCanvasHeight = canvasHeight * supersampleFactor;
+        var scaledImageWidth = sourceWidth * supersampleFactor;
+        var scaledImageHeight = sourceHeight * supersampleFactor;
+
+        return $"scale={scaledImageWidth}:{scaledImageHeight}:flags=lanczos," +
+               $"pad={scaledCanvasWidth}:{scaledCanvasHeight}:(ow-iw)/2:(oh-ih)/2," +
+               BuildZoompanFilter(
+                   clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
+               ",format=yuv420p";
     }
+
+    private static long Even(double value) =>
+        (long)Math.Round(value / 2, MidpointRounding.AwayFromZero) * 2;
 
     private static IReadOnlyList<string> WrapSegmentArguments(
         IReadOnlyList<string> inputs,
