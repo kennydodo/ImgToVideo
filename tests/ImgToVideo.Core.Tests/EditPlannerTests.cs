@@ -94,6 +94,48 @@ public class EditPlannerTests : IDisposable
     }
 
     [Fact]
+    public void Even_distribution_boundaries_snap_to_sentence_pauses()
+    {
+        _project.WriteImage("S01_01_SCN_ST.png", 2304, 1296);
+        _project.WriteImage("S02_01_SCN_ZI.png", 2304, 1296);
+        _project.WriteImage("S03_01_SCN_ST.png", 2304, 1296);
+        _project.WriteFile(
+            "narration.srt",
+            """
+            1
+            00:00:00,000 --> 00:00:05,000
+            One.
+
+            2
+            00:00:05,200 --> 00:00:11,000
+            Two.
+
+            3
+            00:00:12,000 --> 00:00:17,000
+            Three.
+
+            4
+            00:00:17,200 --> 00:00:21,000
+            Four.
+            """);
+        _project.WriteAudio();
+
+        var result = Plan(30.0);
+
+        Assert.True(result.Success);
+        var timeline = result.Timeline!;
+        Assert.Equal(3, timeline.Scenes.Count);
+        Assert.Equal(0, timeline.Scenes[0].StartFrame);
+        Assert.Equal(330, timeline.Scenes[0].EndFrame);
+        Assert.Equal(330, timeline.Scenes[1].StartFrame);
+        Assert.Equal(630, timeline.Scenes[1].EndFrame);
+        Assert.Equal(630, timeline.Scenes[2].StartFrame);
+        Assert.Equal(900, timeline.Scenes[2].EndFrame);
+        Assert.Contains(result.Issues, i =>
+            i.Code == "SCENE_BOUNDARIES_SNAPPED" && i.Message.Contains("2 of 2"));
+    }
+
+    [Fact]
     public void Mismatched_scene_counts_distribute_images_evenly()
     {
         _project.WriteImage("S01_01_SCN_ST.png", 2304, 1296);
@@ -172,10 +214,10 @@ public class EditPlannerTests : IDisposable
         _project.WriteAudio();
     }
 
-    private PlanningResult Plan()
+    private PlanningResult Plan(double audioDurationSeconds = 20.0)
     {
         var inventory = ProjectLoader.Load(_project.Path);
-        return EditPlanner.Plan(inventory, 20.0, new ProjectOptions());
+        return EditPlanner.Plan(inventory, audioDurationSeconds, new ProjectOptions());
     }
 
     public void Dispose() => _project.Dispose();

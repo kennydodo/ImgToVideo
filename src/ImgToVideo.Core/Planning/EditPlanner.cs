@@ -134,9 +134,9 @@ public static class EditPlanner
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Warning, "SCENE_COUNT_MISMATCH",
                 $"Narration suggests {windows.Count} scenes but images define {groups.Count}; " +
-                "images were distributed evenly across the audio duration. " +
-                "Provide scenes.json to control which narration range each scene covers."));
-            return DistributeEvenly(groups, audioDurationSeconds);
+                "images were distributed evenly across the audio duration (boundaries snapped to " +
+                "sentence pauses). Provide scenes.json to control which narration range each scene covers."));
+            return DistributeEvenly(groups, audioDurationSeconds, windows, issues);
         }
 
         var tiled = TileWindows(windows, audioDurationSeconds, issues, warnOnAdjustment: false);
@@ -151,18 +151,78 @@ public static class EditPlanner
     }
 
     private static List<ScenePlanInput> DistributeEvenly(
-        IReadOnlyList<SceneImageGroup> groups, double audioDurationSeconds)
+        IReadOnlyList<SceneImageGroup> groups,
+        double audioDurationSeconds,
+        IReadOnlyList<SceneWindow> sentenceWindows,
+        List<ValidationIssue> issues)
     {
         var count = groups.Count;
         var inputs = new List<ScenePlanInput>(count);
+        double previousBoundary = 0;
+        var snappedCount = 0;
+
         for (var i = 0; i < count; i++)
         {
-            var start = audioDurationSeconds * i / count;
-            var end = audioDurationSeconds * (i + 1) / count;
-            inputs.Add(new ScenePlanInput(groups[i].SceneId, start, end, groups[i].Images));
+            double end;
+            if (i == count - 1)
+            {
+                end = audioDurationSeconds;
+            }
+            else
+            {
+                var raw = audioDurationSeconds * (i + 1) / count;
+                var min = previousBoundary + Pacing.FloorImageSeconds;
+                var max = audioDurationSeconds - (count - 1 - i) * Pacing.FloorImageSeconds;
+                end = SnapBoundary(raw, min, max, sentenceWindows, ref snappedCount);
+            }
+
+            inputs.Add(new ScenePlanInput(groups[i].SceneId, previousBoundary, end, groups[i].Images));
+            previousBoundary = end;
+        }
+
+        if (snappedCount > 0)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Info, "SCENE_BOUNDARIES_SNAPPED",
+                $"{snappedCount} of {count - 1} scene boundaries snapped to sentence pauses."));
         }
 
         return inputs;
+    }
+
+    private static double SnapBoundary(
+        double raw,
+        double min,
+        double max,
+        IReadOnlyList<SceneWindow> sentenceWindows,
+        ref int snappedCount)
+    {
+        const double MaxSnapSeconds = 2.5;
+
+        var best = raw;
+        var bestDistance = MaxSnapSeconds;
+        foreach (var window in sentenceWindows)
+        {
+            var candidate = window.EndSeconds;
+            if (candidate <= min || candidate >= max)
+            {
+                continue;
+            }
+
+            var distance = Math.Abs(candidate - raw);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = candidate;
+            }
+        }
+
+        if (Math.Abs(best - raw) > 0.001)
+        {
+            snappedCount++;
+        }
+
+        return best;
     }
 
     private static List<SceneWindow> TileWindows(

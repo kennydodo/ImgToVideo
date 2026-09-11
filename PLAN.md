@@ -231,10 +231,12 @@ design it fails safe (produces scenes + a WARNING).
 
 **Sparse-image fallback:** when the inferred window count differs from the image scene count,
 the planner no longer blocks — image scene groups are **distributed evenly across the audio
-duration** (WARNING `SCENE_COUNT_MISMATCH` + pointer to scenes.json). This makes sparse
-illustration projects (a handful of chapter images over a long script) produce a watchable rough
-cut by default; each image's motion then spans its whole hold window. Provide `scenes.json` when
-you want narration-anchored timing.
+duration** (WARNING `SCENE_COUNT_MISMATCH` + pointer to scenes.json). Each even boundary is then
+**snapped to the nearest sentence pause** (within 2.5 s, preserving a 2 s minimum scene length)
+so image changes land where the narrator breathes instead of mid-sentence
+(INFO `SCENE_BOUNDARIES_SNAPPED`). This makes sparse illustration projects (a handful of chapter
+images over a long script) produce a watchable rough cut by default; each image's motion then
+spans its whole hold window. Provide `scenes.json` when you want narration-anchored timing.
 
 ## 8. Validation catalog
 
