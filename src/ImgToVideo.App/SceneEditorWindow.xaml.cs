@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using ImgToVideo.Core.Analysis;
 using ImgToVideo.Core.Models;
+using ImgToVideo.Core.Motion;
 using ImgToVideo.Core.Options;
 using ImgToVideo.Core.Overrides;
 using ImgToVideo.Ffmpeg;
@@ -229,20 +230,39 @@ public partial class SceneEditorWindow : Window
 
         try
         {
+            var previewClip = BuildPreviewClip(row, clip, image.Width, image.Height);
             var clipsDirectory = Path.Combine(_projectFolder, "out", "clips");
             Directory.CreateDirectory(clipsDirectory);
-            var outputPath = Path.Combine(
+            var videoPath = Path.Combine(
                 clipsDirectory, Path.GetFileNameWithoutExtension(clip.FilePath) + ".mp4");
 
-            var arguments = PreviewRenderPlanFactory.BuildClipPreviewArguments(
-                clip, image.Width, image.Height, _options, outputPath);
-
             var runner = new FfmpegRunner(_options.Render.FfmpegPath);
-            var result = await runner.RunAsync(arguments);
+            var args = PreviewRenderPlanFactory.BuildClipPreviewArguments(
+                previewClip, image.Width, image.Height, _options, videoPath);
+            var video = await runner.RunAsync(args);
+            if (!video.Success)
+            {
+                TxtEditorStatus.Text = "Preview failed: " + video.ErrorTail;
+                return;
+            }
 
-            TxtEditorStatus.Text = result.Success
-                ? $"Clip preview ready: {outputPath}"
-                : "Preview failed: " + result.ErrorTail;
+            if (_inventory.AudioFilePath is { } audio)
+            {
+                var fps = _options.Output.Fps;
+                var muxArgs = PreviewRenderPlanFactory.BuildClipPreviewMuxArguments(
+                    videoPath, audio,
+                    clip.StartFrame / fps,
+                    previewClip.DurationFrames / fps,
+                    videoPath);
+                var muxed = await runner.RunAsync(muxArgs);
+                if (!muxed.Success)
+                {
+                    TxtEditorStatus.Text = "Preview rendered without audio (mux failed): " + muxed.ErrorTail;
+                }
+            }
+
+            TxtEditorStatus.Text = "Clip preview ready.";
+            new ClipPreviewPlayerWindow(row.Display, videoPath) { Owner = this }.ShowDialog();
         }
         catch (Exception ex)
         {
@@ -252,5 +272,36 @@ public partial class SceneEditorWindow : Window
         {
             previewButton.IsEnabled = true;
         }
+    }
+
+    private VideoClip BuildPreviewClip(ClipRow row, VideoClip clip, int imageWidth, int imageHeight)
+    {
+        var motion = row.Motion != "Auto" && MotionCodes.TryFromSuffix(row.Motion, out var overridden)
+            ? overridden
+            : clip.Motion;
+        var easing = row.Easing != "Auto" && EasingModes.TryFromName(row.Easing, out var eased)
+            ? eased
+            : clip.Easing;
+        var duration = long.TryParse(row.Duration, NumberStyles.Integer, CultureInfo.InvariantCulture,
+            out var frames) && frames > 0
+            ? frames
+            : clip.DurationFrames;
+
+        var engine = new MotionEngine(_options.Motion, _options.Output);
+        var plan = engine.PlanClip(motion, MotionSource.Override, panRight: true, imageWidth, imageHeight);
+
+        return new VideoClip
+        {
+            FilePath = clip.FilePath,
+            SceneId = clip.SceneId,
+            StartFrame = clip.StartFrame,
+            DurationFrames = duration,
+            Motion = plan.Motion,
+            MotionSource = plan.Motion == motion ? MotionSource.Override : clip.MotionSource,
+            ImageType = clip.ImageType,
+            Easing = easing,
+            StartViewport = plan.Start,
+            EndViewport = plan.End,
+        };
     }
 }

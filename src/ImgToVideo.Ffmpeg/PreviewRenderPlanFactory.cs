@@ -148,6 +148,26 @@ public static class PreviewRenderPlanFactory
         VideoClip clip, int sourceWidth, int sourceHeight, ProjectOptions options, string outputPath) =>
         BuildSegmentArguments(clip, sourceWidth, sourceHeight, 0, clip.DurationFrames, options, outputPath);
 
+    public static IReadOnlyList<string> BuildClipPreviewMuxArguments(
+        string videoPath, string audioPath, double startSeconds, double durationSeconds, string outputPath) =>
+        new List<string>
+        {
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-i", videoPath,
+            "-ss", F(startSeconds),
+            "-i", audioPath,
+            "-t", F(durationSeconds),
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            outputPath,
+        };
+
     private static IReadOnlyList<string> BuildSegmentArguments(
         VideoClip clip, int sourceWidth, int sourceHeight,
         long pieceStart, long pieceCount, ProjectOptions options, string outputPath)
