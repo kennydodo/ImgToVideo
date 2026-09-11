@@ -16,8 +16,11 @@ See [docs/generation-spec.md](docs/generation-spec.md) for the image generation 
 - Ffmpeg: preview render plan (supersampled zoompan, crossfade joins), runner with
   progress/cancel, ffprobe audio duration
 - Premiere: FCP7 XML exporter with motion keyframes + cuts-only fallback
-- WPF shell: analyze/build/export UI, diagnostics panel, full settings editor persisted to
-  `imgtovideo.json` — 143 unit tests
+- WPF shell: analyze/build/export UI, diagnostics panel, full settings editor, and a scene editor
+  (per-clip motion/easing/duration/exclude/order + per-cut transitions + single-clip preview)
+  persisted to `overrides.json` — 161 unit tests
+- Transitions: 14 xfade modes, within-scene vs between-scene kinds, centered or late alignment;
+  motion easing (linear/ease-in/ease-out/ease-in-out), globally or per clip
 - Naming v2 (`S##_##_TYPE_MOTION.png`) supported: image type codes (SCN/CU/INF/CMP/PROC/HYB/OVR),
   vertical pans PU/PD, legacy names still parse; type codes and motion codes are independently
   toggleable in Settings > File naming
