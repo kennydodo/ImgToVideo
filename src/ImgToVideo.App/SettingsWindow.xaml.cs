@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
 
 namespace ImgToVideo.App;
@@ -38,6 +39,8 @@ public partial class SettingsWindow : Window
         TxtTimingFloor.Text = F(Options.Timing.FloorImageSeconds);
 
         ChkAutoMotion.IsChecked = Options.Motion.AutoMotionEnabled;
+        CmbEasing.ItemsSource = EasingModes.All.Select(e => e.Name).ToList();
+        CmbEasing.SelectedItem = EasingModes.NameOf(Options.Motion.Easing);
         TxtPushInStart.Text = F(Options.Motion.PushInStartPercent);
         TxtPushInEnd.Text = F(Options.Motion.PushInEndPercent);
         TxtZoomOutStart.Text = F(Options.Motion.ZoomOutStartPercent);
@@ -47,6 +50,12 @@ public partial class SettingsWindow : Window
         TxtStaticMax.Text = Options.Motion.StaticEveryMaxShots.ToString(CultureInfo.InvariantCulture);
 
         ChkTransitionsEnabled.IsChecked = Options.Transitions.Enabled;
+        CmbTransitionKind.ItemsSource = TransitionCatalog.Shortlist.Select(t => t.Name).ToList();
+        CmbTransitionKind.SelectedItem = TransitionCatalog.NameOf(Options.Transitions.Kind);
+        CmbSceneBoundaryKind.ItemsSource = TransitionCatalog.Shortlist.Select(t => t.Name).ToList();
+        CmbSceneBoundaryKind.SelectedItem = TransitionCatalog.NameOf(Options.Transitions.SceneBoundaryKind);
+        CmbTransitionAlignment.ItemsSource = TransitionAlignments.All.Select(a => a.Name).ToList();
+        CmbTransitionAlignment.SelectedItem = TransitionAlignments.NameOf(Options.Transitions.Alignment);
         TxtTransitionDuration.Text = F(Options.Transitions.DurationSeconds);
 
         ChkTypeCodes.IsChecked = Options.Naming.TypeCodesEnabled;
@@ -85,6 +94,9 @@ public partial class SettingsWindow : Window
             Motion = new MotionOptions
             {
                 AutoMotionEnabled = ChkAutoMotion.IsChecked == true,
+                Easing = EasingModes.TryFromName(CmbEasing.SelectedItem as string ?? "", out var easing)
+                    ? easing
+                    : Options.Motion.Easing,
                 PushInStartPercent = D(TxtPushInStart.Text, Options.Motion.PushInStartPercent),
                 PushInEndPercent = D(TxtPushInEnd.Text, Options.Motion.PushInEndPercent),
                 ZoomOutStartPercent = D(TxtZoomOutStart.Text, Options.Motion.ZoomOutStartPercent),
@@ -96,6 +108,17 @@ public partial class SettingsWindow : Window
             Transitions = new TransitionOptions
             {
                 Enabled = ChkTransitionsEnabled.IsChecked == true,
+                Kind = TransitionCatalog.TryFromName(CmbTransitionKind.SelectedItem as string ?? "", out var kind)
+                    ? kind
+                    : Options.Transitions.Kind,
+                SceneBoundaryKind = TransitionCatalog.TryFromName(
+                        CmbSceneBoundaryKind.SelectedItem as string ?? "", out var boundaryKind)
+                    ? boundaryKind
+                    : Options.Transitions.SceneBoundaryKind,
+                Alignment = TransitionAlignments.TryFromName(
+                        CmbTransitionAlignment.SelectedItem as string ?? "", out var alignment)
+                    ? alignment
+                    : Options.Transitions.Alignment,
                 DurationSeconds = D(TxtTransitionDuration.Text, Options.Transitions.DurationSeconds),
             },
             Naming = new NamingOptions

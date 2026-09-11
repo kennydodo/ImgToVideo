@@ -35,6 +35,8 @@
                         <CheckBox x:Name="ChkAutoMotion" Content="Automatic zoom and pan (unsuffixed images)"
                                   Margin="0,2,0,6"/>
                         <UniformGrid Columns="2">
+                            <TextBlock Text="Easing" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="CmbEasing" Margin="0,2,12,2"/>
                             <TextBlock Text="Push-in start %" VerticalAlignment="Center"/>
                             <TextBox x:Name="TxtPushInStart" Padding="3,2" Margin="0,2,12,2"/>
                             <TextBlock Text="Push-in end %" VerticalAlignment="Center"/>
@@ -56,9 +58,15 @@
 
                 <GroupBox Header="Transitions" Padding="8" Margin="0,0,0,8">
                     <StackPanel>
-                        <CheckBox x:Name="ChkTransitionsEnabled" Content="Crossfade between clips" Margin="0,2,0,6"/>
+                        <CheckBox x:Name="ChkTransitionsEnabled" Content="Transitions between clips" Margin="0,2,0,6"/>
                         <UniformGrid Columns="2">
-                            <TextBlock Text="Crossfade duration (seconds)" VerticalAlignment="Center"/>
+                            <TextBlock Text="Within scenes" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="CmbTransitionKind" Margin="0,2,12,2"/>
+                            <TextBlock Text="Between scenes" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="CmbSceneBoundaryKind" Margin="0,2,12,2"/>
+                            <TextBlock Text="Alignment" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="CmbTransitionAlignment" Margin="0,2,12,2"/>
+                            <TextBlock Text="Duration (seconds)" VerticalAlignment="Center"/>
                             <TextBox x:Name="TxtTransitionDuration" Padding="3,2" Margin="0,2,12,2"/>
                         </UniformGrid>
                     </StackPanel>

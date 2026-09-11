@@ -26,7 +26,7 @@ public static class PreviewRenderPlanFactory
         var dimensions = images.ToDictionary(i => i.FilePath, i => (i.Width, i.Height));
         Directory.CreateDirectory(outputDirectory);
 
-        var cuts = ComputeTransitionCuts(clips);
+        var cuts = ComputeTransitionCuts(clips, options);
         var segments = new List<SegmentCommand>();
         long totalFrames = 0;
         long joinCount = 0;
@@ -40,10 +40,10 @@ public static class PreviewRenderPlanFactory
                     $"No usable dimensions for image \"{clip.FilePath}\"; cannot render.");
             }
 
-            var cutIn = i > 0 ? cuts[i - 1] : 0;
-            var cutOut = i < cuts.Length ? cuts[i] : 0;
-            var pieceStart = cutIn > 0 ? (cutIn + 1) / 2 : 0;
-            var pieceEnd = clip.DurationFrames - (cutOut > 0 ? cutOut / 2 : 0);
+            var (cutInFrames, _) = i > 0 ? cuts[i - 1] : (0L, TransitionKind.None);
+            var (cutOutFrames, cutOutKind) = i < cuts.Length ? cuts[i] : (0L, TransitionKind.None);
+            var pieceStart = HeadTrim(cutInFrames, options);
+            var pieceEnd = clip.DurationFrames - TailTrim(cutOutFrames, options);
             var pieceCount = pieceEnd - pieceStart;
 
             var segmentPath = Path.Combine(outputDirectory, $"seg_{i + 1:D4}.mp4");
@@ -54,7 +54,7 @@ public static class PreviewRenderPlanFactory
                 pieceCount));
             totalFrames += pieceCount;
 
-            if (cutOut > 0)
+            if (cutOutFrames > 0)
             {
                 var next = clips[i + 1];
                 if (!dimensions.TryGetValue(next.FilePath, out var nextSize) ||
@@ -72,9 +72,9 @@ public static class PreviewRenderPlanFactory
                     BuildJoinArguments(
                         clip, size.Width, size.Height,
                         next, nextSize.Width, nextSize.Height,
-                        cutOut, options, joinPath),
-                    cutOut));
-                totalFrames += cutOut;
+                        cutOutFrames, cutOutKind, options, joinPath),
+                    cutOutFrames));
+                totalFrames += cutOutFrames;
             }
         }
 
@@ -90,48 +90,63 @@ public static class PreviewRenderPlanFactory
             TotalFrames: totalFrames);
     }
 
-    private static long[] ComputeTransitionCuts(IReadOnlyList<VideoClip> clips)
+    private static (long Frames, TransitionKind Kind)[] ComputeTransitionCuts(
+        IReadOnlyList<VideoClip> clips, ProjectOptions options)
     {
-        var cuts = new long[Math.Max(0, clips.Count - 1)];
+        var cuts = new (long Frames, TransitionKind Kind)[Math.Max(0, clips.Count - 1)];
 
         for (var c = 0; c < cuts.Length; c++)
         {
             var transition = clips[c + 1].Transition;
-            if (transition is not { Kind: TransitionKind.Crossfade, DurationFrames: >= 2 })
+            if (transition is not { Kind: not TransitionKind.None, DurationFrames: >= 2 })
             {
                 continue;
             }
 
-            var tail = transition.DurationFrames / 2;
-            var head = (transition.DurationFrames + 1) / 2;
+            var tail = TailTrim(transition.DurationFrames, options);
+            var head = HeadTrim(transition.DurationFrames, options);
             if (clips[c].DurationFrames - tail < 1 || clips[c + 1].DurationFrames - head < 1)
             {
                 continue;
             }
 
-            cuts[c] = transition.DurationFrames;
+            cuts[c] = (transition.DurationFrames, transition.Kind);
         }
 
         for (var i = 0; i < clips.Count; i++)
         {
-            var trim = (i > 0 && cuts[i - 1] > 0 ? (cuts[i - 1] + 1) / 2 : 0) +
-                       (i < cuts.Length && cuts[i] > 0 ? cuts[i] / 2 : 0);
+            var trim = (i > 0 ? TailTrim(cuts[i - 1].Frames, options) : 0) +
+                       (i < cuts.Length ? HeadTrim(cuts[i].Frames, options) : 0);
             if (clips[i].DurationFrames - trim < 1)
             {
                 if (i > 0)
                 {
-                    cuts[i - 1] = 0;
+                    cuts[i - 1] = (0, TransitionKind.None);
                 }
 
                 if (i < cuts.Length)
                 {
-                    cuts[i] = 0;
+                    cuts[i] = (0, TransitionKind.None);
                 }
             }
         }
 
         return cuts;
     }
+
+    private static long TailTrim(long transitionFrames, ProjectOptions options) =>
+        options.Transitions.Alignment == TransitionAlignment.Late
+            ? transitionFrames
+            : transitionFrames / 2;
+
+    private static long HeadTrim(long transitionFrames, ProjectOptions options) =>
+        options.Transitions.Alignment == TransitionAlignment.Late
+            ? 0
+            : (transitionFrames + 1) / 2;
+
+    public static IReadOnlyList<string> BuildClipPreviewArguments(
+        VideoClip clip, int sourceWidth, int sourceHeight, ProjectOptions options, string outputPath) =>
+        BuildSegmentArguments(clip, sourceWidth, sourceHeight, 0, clip.DurationFrames, options, outputPath);
 
     private static IReadOnlyList<string> BuildSegmentArguments(
         VideoClip clip, int sourceWidth, int sourceHeight,
@@ -153,20 +168,21 @@ public static class PreviewRenderPlanFactory
     private static IReadOnlyList<string> BuildJoinArguments(
         VideoClip outgoing, int outgoingWidth, int outgoingHeight,
         VideoClip incoming, int incomingWidth, int incomingHeight,
-        long transitionFrames, ProjectOptions options, string outputPath)
+        long transitionFrames, TransitionKind kind, ProjectOptions options, string outputPath)
     {
-        var outTail = transitionFrames / 2;
+        var outTail = TailTrim(transitionFrames, options);
 
         var outgoingChain = BuildSideChain(
             outgoing, outgoingWidth, outgoingHeight,
             pieceStart: outgoing.DurationFrames - outTail, pieceCount: transitionFrames, options);
         var incomingChain = BuildSideChain(
             incoming, incomingWidth, incomingHeight,
-            pieceStart: -outTail, pieceCount: transitionFrames, options);
+            pieceStart: -HeadTrim(transitionFrames, options), pieceCount: transitionFrames, options);
 
         var filterComplex =
             $"[0:v]{outgoingChain}[va];[1:v]{incomingChain}[vb];" +
-            $"[va][vb]xfade=transition=fade:duration={F(transitionFrames / (double)options.Output.Fps)}:offset=0," +
+            $"[va][vb]xfade=transition={TransitionCatalog.ToXfadeName(kind)}:" +
+            $"duration={F(transitionFrames / (double)options.Output.Fps)}:offset=0," +
             "format=yuv420p";
 
         return WrapSegmentArguments(
@@ -281,47 +297,44 @@ public static class PreviewRenderPlanFactory
         var steps = clipDuration > 1 ? clipDuration - 1 : 1;
         var supersample = (double)scaledWidth / sourceWidth;
 
-        var widthDelta = (clip.EndViewport.Width - clip.StartViewport.Width) / (double)steps;
-        var xDelta = (clip.EndViewport.X - clip.StartViewport.X) / (double)steps;
-        var yDelta = (clip.EndViewport.Y - clip.StartViewport.Y) / (double)steps;
-        var heightDelta = (clip.EndViewport.Height - clip.StartViewport.Height) / (double)steps;
+        var widthStart = supersample * clip.StartViewport.Width;
+        var widthEnd = supersample * clip.EndViewport.Width;
+        var centerXStart = supersample * (clip.StartViewport.X + clip.StartViewport.Width / 2.0);
+        var centerXEnd = supersample * (clip.EndViewport.X + clip.EndViewport.Width / 2.0);
+        var centerYStart = supersample * (clip.StartViewport.Y + clip.StartViewport.Height / 2.0);
+        var centerYEnd = supersample * (clip.EndViewport.Y + clip.EndViewport.Height / 2.0);
 
-        double ViewportWidth(double f) => clip.StartViewport.Width + widthDelta * f;
-        double ViewportX(double f) => clip.StartViewport.X + xDelta * f;
-        double ViewportY(double f) => clip.StartViewport.Y + yDelta * f;
-
-        double CenterX(double f) => supersample * (ViewportX(f) + ViewportWidth(f) / 2.0);
-        double CenterY(double f) => supersample * (ViewportY(f) + ViewportHeight(f) / 2.0);
-        double ViewportHeight(double f) => clip.StartViewport.Height + heightDelta * f;
-
-        double Zoom(double f) => sourceWidth / ViewportWidth(f);
-
-        var firstFrame = (double)pieceStart;
-        var lastFrame = pieceStart + pieceCount - 1;
-        var zoomStart = Zoom(firstFrame);
-        var zoomEnd = Zoom(lastFrame);
-        var zoomHigh = Math.Max(zoomStart, zoomEnd);
-        var zoomLow = Math.Min(zoomStart, zoomEnd);
+        var zoomHigh = Math.Max(sourceWidth / clip.StartViewport.Width, sourceWidth / clip.EndViewport.Width);
+        var zoomLow = Math.Min(sourceWidth / clip.StartViewport.Width, sourceWidth / clip.EndViewport.Width);
 
         string zoomExpression;
         string xExpression;
         string yExpression;
         if (pieceCount <= 1)
         {
-            zoomExpression = F(zoomStart);
-            xExpression = F(CenterX(firstFrame) - scaledWidth / zoomStart / 2.0);
-            yExpression = F(CenterY(firstFrame) - scaledHeight / zoomStart / 2.0);
+            var progress = EasingValue(clip.Easing, clipDuration > 1 ? (double)pieceStart / steps : 0.0);
+            var width = clip.StartViewport.Width + (clip.EndViewport.Width - clip.StartViewport.Width) * progress;
+            var centerX = (clip.StartViewport.X + clip.StartViewport.Width / 2.0) +
+                          ((clip.EndViewport.X - clip.StartViewport.X) * progress);
+            var centerY = (clip.StartViewport.Y + clip.StartViewport.Height / 2.0) +
+                          ((clip.EndViewport.Y - clip.StartViewport.Y) * progress);
+            var height = clip.StartViewport.Height + (clip.EndViewport.Height - clip.StartViewport.Height) * progress;
+            var zoom = sourceWidth / width;
+
+            zoomExpression = F(zoom);
+            xExpression = F(supersample * centerX - scaledWidth / zoom / 2.0);
+            yExpression = F(supersample * centerY - scaledHeight / zoom / 2.0);
         }
         else
         {
-            var offset = FormatOffset(pieceStart);
+            var progress = EasingExpression(clip.Easing, $"((on{SignedOffset(pieceStart)})/{steps})");
+
             zoomExpression =
-                $"min({F(zoomHigh)},max({F(zoomLow)},{F(scaledWidth)}/({F(supersample * clip.StartViewport.Width)}+" +
-                $"({F(supersample * widthDelta)})*{offset})))";
+                $"min({F(zoomHigh)},max({F(zoomLow)},{F(scaledWidth)}/({F(widthStart)}+({F(widthEnd - widthStart)})*{progress})))";
             xExpression =
-                $"min(max(0,{F(CenterX(firstFrame))}+({F(CenterX(firstFrame + 1) - CenterX(firstFrame))})*{offset}-iw/zoom/2),iw-iw/zoom)";
+                $"min(max(0,({F(centerXStart)}+({F(centerXEnd - centerXStart)})*{progress})-iw/zoom/2),iw-iw/zoom)";
             yExpression =
-                $"min(max(0,{F(CenterY(firstFrame))}+({F(CenterY(firstFrame + 1) - CenterY(firstFrame))})*{offset}-ih/zoom/2),ih-ih/zoom)";
+                $"min(max(0,({F(centerYStart)}+({F(centerYEnd - centerYStart)})*{progress})-ih/zoom/2),ih-ih/zoom)";
         }
 
         return $"zoompan=z='{zoomExpression}':x='{xExpression}':y='{yExpression}'" +
@@ -330,13 +343,34 @@ public static class PreviewRenderPlanFactory
                $":fps={F(options.Output.Fps)}";
     }
 
-    private static string FormatOffset(long pieceStart) =>
-        pieceStart switch
+    private static string EasingExpression(EasingMode easing, string progress)
+    {
+        var clamped = $"min(1,max(0,{progress}))";
+        return easing switch
         {
-            0 => "(on+0)",
-            > 0 => $"(on+{pieceStart.ToString(CultureInfo.InvariantCulture)})",
-            _ => $"(on{pieceStart.ToString(CultureInfo.InvariantCulture)})",
+            EasingMode.EaseIn => $"pow({clamped},2)",
+            EasingMode.EaseOut => $"1-pow(1-{clamped},2)",
+            EasingMode.EaseInOut => $"pow({clamped},3)*({clamped}*({clamped}*6-15)+10)",
+            _ => progress,
         };
+    }
+
+    private static double EasingValue(EasingMode easing, double progress)
+    {
+        progress = Math.Clamp(progress, 0, 1);
+        return easing switch
+        {
+            EasingMode.EaseIn => progress * progress,
+            EasingMode.EaseOut => 1 - (1 - progress) * (1 - progress),
+            EasingMode.EaseInOut => progress * progress * progress * (progress * (progress * 6 - 15) + 10),
+            _ => progress,
+        };
+    }
+
+    private static string SignedOffset(long pieceStart) =>
+        pieceStart < 0
+            ? pieceStart.ToString(CultureInfo.InvariantCulture)
+            : "+" + pieceStart.ToString(CultureInfo.InvariantCulture);
 
     private static string BuildConcatList(IReadOnlyList<SegmentCommand> segments)
     {

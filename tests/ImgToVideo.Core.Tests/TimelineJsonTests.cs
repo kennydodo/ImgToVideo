@@ -36,6 +36,7 @@ public class TimelineJsonTests
                             Motion = MotionType.ZoomIn,
                             MotionSource = MotionSource.ExplicitCode,
                             ImageType = ImageType.Scene,
+                            Easing = EasingMode.EaseInOut,
                             StartViewport = new Rect(0, 0, 2304, 1296),
                             EndViewport = new Rect(60, 30, 2160, 1215),
                         },
@@ -83,6 +84,7 @@ public class TimelineJsonTests
         Assert.Equal(MotionType.ZoomIn, loadedClip.Motion);
         Assert.Equal(MotionSource.ExplicitCode, loadedClip.MotionSource);
         Assert.Equal(ImageType.Scene, loadedClip.ImageType);
+        Assert.Equal(EasingMode.EaseInOut, loadedClip.Easing);
         Assert.Equal(originalClip.StartViewport, loadedClip.StartViewport);
         Assert.Equal(originalClip.EndViewport, loadedClip.EndViewport);
 
@@ -108,7 +110,7 @@ public class TimelineJsonTests
     public void Load_rejects_unknown_schema_version()
     {
         var json = System.Text.Json.JsonSerializer.Serialize(SampleTimeline(), TimelineJson.Options);
-        var mutated = json.Replace("\"schema_version\": 2", "\"schema_version\": 99");
+        var mutated = json.Replace("\"schema_version\": 3", "\"schema_version\": 99");
 
         Assert.Throws<InvalidDataException>(() => TimelineJson.LoadFromJson(mutated));
     }
@@ -124,7 +126,7 @@ public class TimelineJsonTests
     {
         var json = """
             {
-              "schema_version": 2,
+              "schema_version": 3,
               "project_name": "x",
               "resolution": { "width": 1920, "height": 1080 },
               "fps": 30,
@@ -161,7 +163,8 @@ public class TimelineJsonTests
 
         Assert.Contains("\"motion\": \"zoom_in\"", json);
         Assert.Contains("\"motion_source\": \"explicit_code\"", json);
-        Assert.Contains("\"schema_version\": 2", json);
+        Assert.Contains("\"schema_version\": 3", json);
         Assert.Contains("\"image_type\": \"scene\"", json);
+        Assert.Contains("\"easing\": \"ease_in_out\"", json);
     }
 }

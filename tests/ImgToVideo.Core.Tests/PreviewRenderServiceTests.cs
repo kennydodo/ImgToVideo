@@ -112,6 +112,15 @@ public class PreviewRenderServiceTests : IDisposable
         var previewPath = System.IO.Path.Combine(_project.Path, "out", "preview.mp4");
         var plan = PreviewRenderPlanFactory.Build(timeline, images, options, renderDirectory, previewPath);
 
+        var debugDir = @"C:\Users\Kehinde\AppData\Local\Temp\kilo\itv-debug";
+        Directory.CreateDirectory(debugDir);
+        foreach (var segment in plan.Segments)
+        {
+            File.WriteAllLines(
+                Path.Combine(debugDir, Path.GetFileName(segment.OutputPath) + ".args.txt"),
+                segment.Arguments);
+        }
+
         var service = new PreviewRenderService(new FfmpegRunner());
         var result = await service.RenderAsync(plan, maxParallelism: 2);
 

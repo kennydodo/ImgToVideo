@@ -127,4 +127,49 @@ public class TimingEngineTests
         Assert.Null(result.Scenes[0].Clips[0].ExplicitMotion);
         Assert.Equal(MotionType.PanRight, result.Scenes[0].Clips[1].ExplicitMotion);
     }
+
+    [Fact]
+    public void Duration_override_takes_frames_from_siblings()
+    {
+        var scene = Scene("S01", 0, 10, 2);
+        var overrides = new Dictionary<string, long> { ["images/S01_01.png"] = 210 };
+
+        var result = TimingEngine.Plan([scene], 10.0, Options, overrides);
+
+        var clips = Assert.Single(result.Scenes).Clips;
+        Assert.Equal(210, clips[0].DurationFrames);
+        Assert.Equal(90, clips[1].DurationFrames);
+    }
+
+    [Fact]
+    public void Impossible_duration_overrides_are_ignored_with_warning()
+    {
+        var scene = Scene("S01", 0, 10, 2);
+        var overrides = new Dictionary<string, long> { ["images/S01_01.png"] = 300 };
+
+        var result = TimingEngine.Plan([scene], 10.0, Options, overrides);
+
+        var clips = Assert.Single(result.Scenes).Clips;
+        Assert.Equal(150, clips[0].DurationFrames);
+        Assert.Equal(150, clips[1].DurationFrames);
+        Assert.Contains(result.Issues, i => i.Code == "TIMING_OVERRIDE_IGNORED");
+    }
+
+    [Fact]
+    public void Overrides_summing_to_exactly_the_scene_are_kept()
+    {
+        var scene = Scene("S01", 0, 10, 2);
+        var overrides = new Dictionary<string, long>
+        {
+            ["images/S01_01.png"] = 100,
+            ["images/S01_02.png"] = 200,
+        };
+
+        var result = TimingEngine.Plan([scene], 10.0, Options, overrides);
+
+        var clips = Assert.Single(result.Scenes).Clips;
+        Assert.Equal(100, clips[0].DurationFrames);
+        Assert.Equal(200, clips[1].DurationFrames);
+        Assert.DoesNotContain(result.Issues, i => i.Code == "TIMING_OVERRIDE_IGNORED");
+    }
 }

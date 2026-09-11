@@ -18,7 +18,7 @@ public sealed record ProcessResult(int ExitCode, string StandardOutput, string S
             }
 
             var lines = trimmed.Split('\n');
-            return lines.Length <= 5 ? trimmed : string.Join("\n", lines[^5..]);
+            return lines.Length <= 40 ? trimmed : string.Join("\n", lines[^40..]);
         }
     }
 }

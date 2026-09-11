@@ -34,7 +34,11 @@ public static class EditPlanner
             return new PlanningResult(false, null, issues);
         }
 
-        var timing = TimingEngine.Plan(sceneInputs, audioDurationSeconds, options);
+        var timing = TimingEngine.Plan(
+            sceneInputs,
+            audioDurationSeconds,
+            options,
+            DurationOverrideLookup(inventory));
         issues.AddRange(timing.Issues);
         if (ValidationIssue.HasErrors(issues))
         {
@@ -285,6 +289,12 @@ public static class EditPlanner
         return tiled;
     }
 
+    private static IReadOnlyDictionary<string, long>? DurationOverrideLookup(ProjectInventory inventory) =>
+        inventory.Overrides.Clips
+            .Where(c => c.DurationFrames is not null)
+            .GroupBy(c => c.File, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().DurationFrames!.Value, StringComparer.OrdinalIgnoreCase);
+
     private static Timeline AssembleTimeline(
         ProjectInventory inventory,
         TimingResult timing,
@@ -308,8 +318,8 @@ public static class EditPlanner
             },
         };
 
-        var allClips = timing.Scenes.SelectMany(s => s.Clips).ToList();
         MotionType? previous = null;
+        var previousSceneId = string.Empty;
         var shotsSinceStatic = 0;
 
         foreach (var scene in timing.Scenes)
@@ -331,20 +341,25 @@ public static class EditPlanner
                     shotsSinceStatic);
 
                 var decision = motionEngine.SelectMotion(ctx);
+                var clipOverride = inventory.Overrides.ForClip(timed.FilePath);
+                var requestedMotion = clipOverride?.Motion ?? decision.Motion;
+                var requestedSource = clipOverride?.Motion is not null
+                    ? MotionSource.Override
+                    : decision.Source;
 
-                if (decision.Source == MotionSource.ExplicitCode)
+                if (requestedSource == MotionSource.ExplicitCode)
                 {
                     issues.Add(new ValidationIssue(
                         ValidationSeverity.Info, "MOTION_EXPLICIT",
-                        $"{Path.GetFileName(timed.FilePath)} uses explicit motion {decision.Motion}."));
+                        $"{Path.GetFileName(timed.FilePath)} uses explicit motion {requestedMotion}."));
                 }
 
                 var panRight = ctx.Previous != MotionType.PanRight;
                 var plan = motionEngine.PlanClip(
-                    decision.Motion, decision.Source, panRight, image.Width, image.Height);
+                    requestedMotion, requestedSource, panRight, image.Width, image.Height);
                 var effectiveMotion = plan.Motion;
-                var effectiveSource = plan.Motion == decision.Motion
-                    ? decision.Source
+                var effectiveSource = plan.Motion == requestedMotion
+                    ? requestedSource
                     : MotionSource.AutoSelected;
 
                 foreach (var warning in plan.Warnings)
@@ -360,26 +375,35 @@ public static class EditPlanner
                         $"{Path.GetFileName(timed.FilePath)} has unknown dimensions; cannot compute viewports."));
                 }
 
+                var easing = clipOverride?.Easing ?? options.Motion.Easing;
+                var finalDecision = new MotionDecision(effectiveMotion, effectiveSource);
                 VideoClip? clip;
-                if (options.Transitions.Enabled && i > 0 && options.Transitions.Kind == TransitionKind.Crossfade)
+                if (options.Transitions.Enabled && (scene != timing.Scenes[0] || i > 0))
                 {
+                    var isSceneBoundary = i == 0 && previousSceneId.Length > 0 && previousSceneId != scene.SceneId;
+                    var cutKind = inventory.Overrides.CutFor(timed.FilePath)
+                        ?? (isSceneBoundary
+                            ? options.Transitions.SceneBoundaryKind
+                            : options.Transitions.Kind);
+
                     clip = MakeClip(timed, image.Name.Type,
-                        new MotionDecision(effectiveMotion, effectiveSource),
+                        finalDecision, easing,
                         plan.Start, plan.End, new TransitionIn
                         {
-                            Kind = TransitionKind.Crossfade,
+                            Kind = cutKind,
                             DurationFrames = transitionFrames,
                         });
                 }
                 else
                 {
                     clip = MakeClip(timed, image.Name.Type,
-                        new MotionDecision(effectiveMotion, effectiveSource),
+                        finalDecision, easing,
                         plan.Start, plan.End, null);
                 }
 
                 sceneClips.Add(clip);
                 previous = effectiveMotion;
+                previousSceneId = scene.SceneId;
                 shotsSinceStatic = effectiveMotion == MotionType.Static ? 0 : shotsSinceStatic + 1;
             }
 
@@ -399,6 +423,7 @@ public static class EditPlanner
         TimedClip timed,
         ImageType? imageType,
         MotionDecision decision,
+        EasingMode easing,
         Rect startViewport,
         Rect endViewport,
         TransitionIn? transition) =>
@@ -411,6 +436,7 @@ public static class EditPlanner
             Motion = decision.Motion,
             MotionSource = decision.Source,
             ImageType = imageType,
+            Easing = easing,
             StartViewport = startViewport,
             EndViewport = endViewport,
             Transition = transition,

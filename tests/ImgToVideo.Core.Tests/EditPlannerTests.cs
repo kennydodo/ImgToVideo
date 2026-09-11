@@ -10,7 +10,6 @@ namespace ImgToVideo.Core.Tests;
 public class EditPlannerTests : IDisposable
 {
     private readonly TempProject _project = new();
-
     [Fact]
     public void Plans_complete_project_end_to_end()
     {
@@ -91,6 +90,43 @@ public class EditPlannerTests : IDisposable
         Assert.Equal(120, clips[1].DurationFrames);
         Assert.Equal(180, clips[2].DurationFrames);
         Assert.Equal(180, clips[3].DurationFrames);
+    }
+
+    [Fact]
+    public void Overrides_apply_motion_easing_and_cut_transitions()
+    {
+        WriteStandardProject();
+        _project.WriteFile("overrides.json", """
+            {
+              "schema_version": 1,
+              "clips": [
+                { "file": "images/S01_02_ZI.png", "motion": "static", "easing": "ease_in_out" }
+              ],
+              "cuts": [
+                { "before_file": "images/S02_02_PR.png", "transition": "circle_open" }
+              ]
+            }
+            """);
+
+        var inventory = ProjectLoader.Load(_project.Path);
+        Assert.NotNull(inventory.Overrides.ForClip(inventory.AllImages[1].FilePath));
+
+        var result = EditPlanner.Plan(inventory, 20.0, new ProjectOptions());
+
+        Assert.True(result.Success);
+        var clips = result.Timeline!.Scenes.SelectMany(s => s.Clips).ToList();
+
+        var clip2 = clips[1];
+        Assert.Equal(MotionType.Static, clip2.Motion);
+        Assert.Equal(MotionSource.Override, clip2.MotionSource);
+        Assert.Equal(EasingMode.EaseInOut, clip2.Easing);
+        Assert.Equal(TransitionKind.Crossfade, clip2.Transition!.Kind);
+
+        var clip3 = clips[2];
+        Assert.Equal(TransitionKind.FadeBlack, clip3.Transition!.Kind);
+
+        var clip4 = clips[3];
+        Assert.Equal(TransitionKind.CircleOpen, clip4.Transition!.Kind);
     }
 
     [Fact]

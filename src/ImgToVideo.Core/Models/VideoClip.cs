@@ -9,6 +9,7 @@ public sealed class VideoClip
     public MotionType Motion { get; set; } = MotionType.Static;
     public MotionSource MotionSource { get; set; } = MotionSource.AutoSelected;
     public ImageType? ImageType { get; set; }
+    public EasingMode Easing { get; set; } = EasingMode.Linear;
     public Rect StartViewport { get; set; }
     public Rect EndViewport { get; set; }
     public TransitionIn? Transition { get; set; }

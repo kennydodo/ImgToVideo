@@ -1,7 +1,9 @@
 using ImgToVideo.Core.Imaging;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
+using ImgToVideo.Core.Overrides;
 using ImgToVideo.Core.Parsing;
+using System.Text.Json;
 
 namespace ImgToVideo.Core.Analysis;
 
@@ -14,6 +16,7 @@ public sealed class ProjectInventory
     public List<SceneImageGroup> SceneGroups { get; init; } = new();
     public List<SubtitleBlock> Subtitles { get; init; } = new();
     public IReadOnlyList<SceneWindow>? SceneMapWindows { get; init; }
+    public ProjectOverrides Overrides { get; init; } = new();
     public List<ValidationIssue> Issues { get; init; } = new();
 }
 
@@ -29,7 +32,8 @@ public static class ProjectLoader
         var audio = FindAudio(projectFolder, issues);
         var srt = FindSrt(projectFolder, issues);
         var subtitles = ParseSubtitles(srt, issues);
-        var images = LoadImages(projectFolder, options.Naming, issues);
+        var overrides = LoadOverrides(projectFolder, issues);
+        var images = LoadImages(projectFolder, options.Naming, overrides, issues);
         var sceneMap = LoadSceneMap(projectFolder, issues);
 
         return new ProjectInventory
@@ -41,9 +45,48 @@ public static class ProjectLoader
             AllImages = images.All,
             SceneGroups = images.Groups,
             SceneMapWindows = sceneMap,
+            Overrides = overrides,
             Issues = issues,
         };
     }
+
+    private static ProjectOverrides LoadOverrides(string projectFolder, List<ValidationIssue> issues)
+    {
+        ProjectOverrides overrides;
+        try
+        {
+            overrides = OverridesJson.LoadOrDefault(Path.Combine(projectFolder, "overrides.json"));
+        }
+        catch (InvalidDataException e)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "OVERRIDES_INVALID",
+                $"overrides.json could not be loaded: {e.Message}"));
+            return new ProjectOverrides();
+        }
+        catch (JsonException e)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "OVERRIDES_INVALID",
+                $"overrides.json could not be loaded: {e.Message}"));
+            return new ProjectOverrides();
+        }
+
+        foreach (var clip in overrides.Clips)
+        {
+            clip.File = ResolveProjectPath(projectFolder, clip.File);
+        }
+
+        foreach (var cut in overrides.Cuts)
+        {
+            cut.BeforeFile = ResolveProjectPath(projectFolder, cut.BeforeFile);
+        }
+
+        return overrides;
+    }
+
+    private static string ResolveProjectPath(string projectFolder, string file) =>
+        Path.IsPathRooted(file) ? file : Path.GetFullPath(Path.Combine(projectFolder, file));
 
     private static string? FindAudio(string projectFolder, List<ValidationIssue> issues)
     {
@@ -145,7 +188,7 @@ public static class ProjectLoader
     }
 
     private static (List<ImageInfo> All, List<SceneImageGroup> Groups) LoadImages(
-        string projectFolder, NamingOptions naming, List<ValidationIssue> issues)
+        string projectFolder, NamingOptions naming, ProjectOverrides overrides, List<ValidationIssue> issues)
     {
         var imagesDir = Path.Combine(projectFolder, "images");
         if (!Directory.Exists(imagesDir))
@@ -252,14 +295,30 @@ public static class ProjectLoader
             images.Add(new ImageInfo(file, parsed, width, height));
         }
 
+        foreach (var image in images.Where(i => overrides.ForClip(i.FilePath)?.Exclude == true).ToList())
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Info, "IMAGE_EXCLUDED",
+                $"\"{Path.GetFileName(image.FilePath)}\" is excluded by overrides and was skipped."));
+            images.Remove(image);
+        }
+
         if (images.Count == 0)
         {
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Error, "IMAGES_NONE",
                 "No correctly named images were found in the \"images\" folder. " +
-                "Names must look like S01_01.png or S08_02_PR.png " +
-                "(pattern: S{scene}_{index}[_CODE].png with CODE = ST/ZI/ZO/PL/PR/PV)."));
+                "Names must look like S01_01.png or S08_02_SCN_PR.png " +
+                "(pattern: S{scene}_{index}[_TYPE][_CODE].png)."));
         }
+
+        var orderLookup = overrides.Clips
+            .Where(c => c.Order is not null)
+            .ToDictionary(c => c.File, c => c.Order!.Value, StringComparer.OrdinalIgnoreCase);
+
+        images = images
+            .OrderBy(i => orderLookup.TryGetValue(i.FilePath, out var order) ? order : int.MaxValue)
+            .ToList();
 
         var groups = images
             .GroupBy(i => i.Name.SceneNumber)

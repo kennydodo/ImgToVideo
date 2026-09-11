@@ -92,6 +92,43 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void BtnScenes_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inventory is null || !IsProjectFolderReady())
+        {
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Preparing scene editor…");
+            if (!await PlanIfNeededAsync())
+            {
+                return;
+            }
+
+            var editor = new SceneEditorWindow(
+                _projectFolder, _planned!.Timeline!, _inventory, _options) { Owner = this };
+            editor.ShowDialog();
+
+            if (editor.Saved)
+            {
+                _planned = null;
+                BtnBuild.IsEnabled = true;
+                BtnExport.IsEnabled = true;
+                ShowStatus("Overrides saved — BUILD PREVIEW to apply them.", StatusKind.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatus("Scene editor failed: " + ex.Message, StatusKind.Error);
+        }
+        finally
+        {
+            SetBusy(false, null);
+        }
+    }
+
     private async void BtnBuild_Click(object sender, RoutedEventArgs e)
     {
         if (_inventory is null || !IsProjectFolderReady())
@@ -328,6 +365,7 @@ public partial class MainWindow : Window
     {
         BtnAnalyze.IsEnabled = !busy;
         BtnSettings.IsEnabled = !busy;
+        BtnScenes.IsEnabled = !busy && _inventory is not null;
         BtnCancel.IsEnabled = busy;
 
         if (busy)

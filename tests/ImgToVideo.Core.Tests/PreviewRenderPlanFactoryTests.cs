@@ -53,9 +53,9 @@ public class PreviewRenderPlanFactoryTests : IDisposable
 
         Assert.Equal(
             "scale=4608:2592:flags=lanczos," +
-            "zoompan=z='min(1.28,max(1.2,4608/(3840+(-2.696629)*(on+0))))'" +
-            ":x='min(max(0,2304+(0)*(on+0)-iw/zoom/2),iw-iw/zoom)'" +
-            ":y='min(max(0,1296+(0)*(on+0)-ih/zoom/2),ih-ih/zoom)'" +
+            "zoompan=z='min(1.28,max(1.2,4608/(3840+(-240)*((on+0)/89))))'" +
+            ":x='min(max(0,(2304+(0)*((on+0)/89))-iw/zoom/2),iw-iw/zoom)'" +
+            ":y='min(max(0,(1296+(0)*((on+0)/89))-ih/zoom/2),ih-ih/zoom)'" +
             ":d=90:s=960x540:fps=30,format=yuv420p",
             vf);
     }
@@ -72,11 +72,26 @@ public class PreviewRenderPlanFactoryTests : IDisposable
 
         Assert.Equal(
             "scale=5760:2592:flags=lanczos," +
-            "zoompan=z='min(1.5,max(1.5,5760/(3840+(0)*(on+0))))'" +
-            ":x='min(max(0,1920+(21.573034)*(on+0)-iw/zoom/2),iw-iw/zoom)'" +
-            ":y='min(max(0,1296+(0)*(on+0)-ih/zoom/2),ih-ih/zoom)'" +
+            "zoompan=z='min(1.5,max(1.5,5760/(3840+(0)*((on+0)/89))))'" +
+            ":x='min(max(0,(1920+(1920)*((on+0)/89))-iw/zoom/2),iw-iw/zoom)'" +
+            ":y='min(max(0,(1296+(0)*((on+0)/89))-ih/zoom/2),ih-ih/zoom)'" +
             ":d=90:s=960x540:fps=30,format=yuv420p",
             vf);
+    }
+
+    [Fact]
+    public void Ease_in_shapes_the_motion_progress()
+    {
+        var (timeline, images) = SampleTimeline();
+        timeline.Scenes[0].Clips[0].Easing = EasingMode.EaseIn;
+        var plan = PreviewRenderPlanFactory.Build(
+            timeline, images, Options(), _outputDirectory,
+            System.IO.Path.Combine(_project.Path, "out", "preview.mp4"));
+
+        var vf = ArgumentAfter(plan.Segments[0].Arguments, "-vf");
+
+        Assert.Contains("pow(min(1,max(0,((on+0)/89))),2)", vf);
+        Assert.Contains("4608/(3840+(-240)*pow(min(1,max(0,((on+0)/89))),2))", vf);
     }
 
     [Fact]
@@ -95,11 +110,11 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         Assert.Equal(180, plan.TotalFrames);
 
         Assert.EndsWith("seg_0001.mp4", plan.Segments[0].OutputPath);
-        Assert.Equal(83, plan.Segments[0].FrameCount);
+        Assert.Equal(75, plan.Segments[0].FrameCount);
         Assert.EndsWith("join_0001.mp4", plan.Segments[1].OutputPath);
         Assert.Equal(15, plan.Segments[1].FrameCount);
         Assert.EndsWith("seg_0002.mp4", plan.Segments[2].OutputPath);
-        Assert.Equal(82, plan.Segments[2].FrameCount);
+        Assert.Equal(90, plan.Segments[2].FrameCount);
 
         var listIndex1 = plan.ConcatListContent.IndexOf(plan.Segments[0].OutputPath, StringComparison.Ordinal);
         var listIndex2 = plan.ConcatListContent.IndexOf(plan.Segments[1].OutputPath, StringComparison.Ordinal);
@@ -128,8 +143,8 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         Assert.Contains("xfade=transition=fade:duration=0.5:offset=0", filterComplex);
         Assert.Contains("[va]", filterComplex);
         Assert.Contains("[vb]", filterComplex);
-        Assert.Contains("(on+83)", filterComplex);
-        Assert.Contains("(on-7)", filterComplex);
+        Assert.Contains("((on+75)/89)", filterComplex);
+        Assert.Contains("((on+0)/89)", filterComplex);
         Assert.Contains("format=yuv420p", filterComplex);
         Assert.Contains("-frames:v", join.Arguments);
         Assert.Contains("15", join.Arguments);

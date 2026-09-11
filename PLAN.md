@@ -357,6 +357,28 @@ Refinements made while implementing phases 1–7; these refine the rules above.
 - Vertical pans `PU`/`PD` derive their 100% viewport from the WIDTH margin (mirror of PL/PR);
   minimum size 2304×2160 (200% tall)
 
+**Transitions shortlist + alignment (phase: transitions)**
+- `TransitionKind` shortlist mapped 1:1 onto ffmpeg `xfade` modes: crossfade, fadeblack,
+  fadewhite, wipeleft/right/up/down, slideleft/right, dissolve, circleopen/close,
+  smoothleft/right — the join segments take any mode for free
+- `TransitionOptions`: `Kind` (within scenes, default crossfade), `SceneBoundaryKind` (between
+  scenes, default dip-to-black), `Alignment` (Centered on cut / **Start at cut** — the default,
+  so the incoming image never appears before its narration window), `DurationSeconds`
+- Per-cut overrides come from `overrides.json` (`cuts: [{ before_file, transition }]`)
+- The zoompan interpolation progress is shaped by `EasingMode` (linear / ease-in / ease-out /
+  ease-in-out — smootherstep), globally via `MotionOptions.Easing` and per clip via overrides;
+  eased motion clamps at the clip boundary so extrapolated join sides hold their final framing
+  while fading
+
+**Overrides layer (`overrides.json`)**
+- Applied last: inference → scenes.json → overrides → planner
+- Per clip (`clips: [{ file, motion?, easing?, duration_frames?, exclude?, order? }]`): motion and
+  easing overrides (source becomes `override` in timeline.json), duration overrides rebalance
+  sibling durations inside the scene window (ignored with a WARNING when they cannot fit),
+  exclude skips an image without deleting it, order reorders within the scene
+- Paths are resolved relative to the project folder and matched case/slash-insensitively;
+  invalid files are dropped with a WARNING (`OVERRIDES_INVALID`)
+
 **Renderer (§9, phases 8–9)**
 - Segment filter chain: lanczos pre-supersample (2× when source width < 3840) → `zoompan` with
   duration-frame count, output size/fps → `format=yuv420p` → libx264 with preview preset/CRF,

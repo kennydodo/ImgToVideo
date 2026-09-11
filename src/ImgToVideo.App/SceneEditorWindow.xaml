@@ -1,0 +1,146 @@
+<Window x:Class="ImgToVideo.App.SceneEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ImgToVideo — Scene Editor"
+        Height="640" Width="900"
+        MinHeight="480" MinWidth="760"
+        Background="{StaticResource BrushWindowBackground}"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <x:Array x:Key="MotionChoices" Type="sys:String"
+                 xmlns:sys="clr-namespace:System;assembly=mscorlib">
+            <sys:String>Auto</sys:String>
+            <sys:String>ST</sys:String>
+            <sys:String>ZI</sys:String>
+            <sys:String>ZO</sys:String>
+            <sys:String>PL</sys:String>
+            <sys:String>PR</sys:String>
+            <sys:String>PU</sys:String>
+            <sys:String>PD</sys:String>
+            <sys:String>PV</sys:String>
+        </x:Array>
+        <x:Array x:Key="EasingChoices" Type="sys:String"
+                 xmlns:sys="clr-namespace:System;assembly=mscorlib">
+            <sys:String>Auto</sys:String>
+            <sys:String>Linear</sys:String>
+            <sys:String>Ease in</sys:String>
+            <sys:String>Ease out</sys:String>
+            <sys:String>Ease in out</sys:String>
+        </x:Array>
+        <x:Array x:Key="TransitionChoices" Type="sys:String"
+                 xmlns:sys="clr-namespace:System;assembly=mscorlib">
+            <sys:String>Auto</sys:String>
+            <sys:String>Crossfade</sys:String>
+            <sys:String>Dip to black</sys:String>
+            <sys:String>Dip to white</sys:String>
+            <sys:String>Wipe left</sys:String>
+            <sys:String>Wipe right</sys:String>
+            <sys:String>Wipe up</sys:String>
+            <sys:String>Wipe down</sys:String>
+            <sys:String>Slide left</sys:String>
+            <sys:String>Slide right</sys:String>
+            <sys:String>Dissolve</sys:String>
+            <sys:String>Circle open</sys:String>
+            <sys:String>Circle close</sys:String>
+            <sys:String>Smooth push left</sys:String>
+            <sys:String>Smooth push right</sys:String>
+        </x:Array>
+    </Window.Resources>
+
+    <DockPanel Margin="12" LastChildFill="True">
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="240"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Scene:"
+                       Foreground="{StaticResource BrushTextLabel}"
+                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <ComboBox Grid.Column="1" x:Name="CmbScene"
+                      SelectionChanged="CmbScene_SelectionChanged"/>
+        </Grid>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="BtnSave" Content="Save overrides"
+                    Style="{StaticResource PrimaryButton}" Margin="0,0,8,0" Click="BtnSave_Click"/>
+            <Button x:Name="BtnClose" Content="Close"
+                    Style="{StaticResource SecondaryButton}" IsCancel="True"/>
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Bottom" x:Name="TxtEditorStatus"
+                   Text="Edits are saved to overrides.json and applied on the next BUILD PREVIEW."
+                   TextWrapping="Wrap" Margin="0,8,0,0"/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Grid Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="70"/>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="130"/>
+                        <ColumnDefinition Width="35"/>
+                        <ColumnDefinition Width="35"/>
+                        <ColumnDefinition Width="45"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Clip" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="1" Text="Motion" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="2" Text="Easing" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="3" Text="Frames" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="4" Text="Exclude" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="5" Text="Transition in" FontWeight="SemiBold"/>
+                </Grid>
+                <ItemsControl x:Name="ClipList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="35"/>
+                                    <ColumnDefinition Width="35"/>
+                                    <ColumnDefinition Width="45"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Display}"
+                                           Foreground="{StaticResource BrushTextPrimary}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FilePath}"/>
+                                <ComboBox Grid.Column="1" Margin="0,0,4,0"
+                                          ItemsSource="{StaticResource MotionChoices}"
+                                          SelectedItem="{Binding Motion, Mode=TwoWay}"/>
+                                <ComboBox Grid.Column="2" Margin="0,0,4,0"
+                                          ItemsSource="{StaticResource EasingChoices}"
+                                          SelectedItem="{Binding Easing, Mode=TwoWay}"/>
+                                <TextBox Grid.Column="3" Text="{Binding Duration, Mode=TwoWay}"/>
+                                <CheckBox Grid.Column="4" IsChecked="{Binding Exclude, Mode=TwoWay}"
+                                          HorizontalAlignment="Center"/>
+                                <ComboBox Grid.Column="5" Margin="0,0,4,0"
+                                          ItemsSource="{StaticResource TransitionChoices}"
+                                          SelectedItem="{Binding Transition, Mode=TwoWay}"/>
+                                <Button Grid.Column="6" Content="↑"
+                                        Style="{StaticResource SecondaryButton}" Padding="2,0"
+                                        Tag="{Binding}" Click="BtnMoveUp_Click"/>
+                                <Button Grid.Column="7" Content="↓"
+                                        Style="{StaticResource SecondaryButton}" Padding="2,0" Margin="4,0,0,0"
+                                        Tag="{Binding}" Click="BtnMoveDown_Click"/>
+                                <Button Grid.Column="8" Content="▶" Margin="4,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Padding="2,0"
+                                        ToolTip="Preview this clip"
+                                        Tag="{Binding}" Click="BtnPreviewRow_Click"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

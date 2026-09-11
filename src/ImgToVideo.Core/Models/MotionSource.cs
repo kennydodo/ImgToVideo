@@ -4,4 +4,5 @@ public enum MotionSource
 {
     ExplicitCode,
     AutoSelected,
+    Override,
 }

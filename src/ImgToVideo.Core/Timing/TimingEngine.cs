@@ -19,7 +19,8 @@ public static class TimingEngine
     public static TimingResult Plan(
         IReadOnlyList<ScenePlanInput> scenes,
         double audioDurationSeconds,
-        ProjectOptions options)
+        ProjectOptions options,
+        IReadOnlyDictionary<string, long>? durationOverrides = null)
     {
         var issues = new List<ValidationIssue>();
         var fps = options.Output.Fps;
@@ -40,7 +41,7 @@ public static class TimingEngine
                 continue;
             }
 
-            timedScenes.Add(SplitScene(scene, startFrame, endFrame, fps, options, issues));
+            timedScenes.Add(SplitScene(scene, startFrame, endFrame, fps, options, durationOverrides, issues));
         }
 
         return new TimingResult(timedScenes, issues);
@@ -81,6 +82,7 @@ public static class TimingEngine
         long endFrame,
         double fps,
         ProjectOptions options,
+        IReadOnlyDictionary<string, long>? durationOverrides,
         List<ValidationIssue> issues)
     {
         var total = endFrame - startFrame;
@@ -143,6 +145,11 @@ public static class TimingEngine
             }
         }
 
+        if (durationOverrides is not null)
+        {
+            ApplyDurationOverrides(scene, images, durations, total, durationOverrides, issues);
+        }
+
         var clips = new List<TimedClip>(count);
         long cursor = startFrame;
         for (var i = 0; i < count; i++)
@@ -157,5 +164,61 @@ public static class TimingEngine
         }
 
         return new TimedScene(scene.SceneId, startFrame, endFrame, clips);
+    }
+
+    private static void ApplyDurationOverrides(
+        ScenePlanInput scene,
+        IReadOnlyList<ImageInfo> images,
+        long[] durations,
+        long totalFrames,
+        IReadOnlyDictionary<string, long> durationOverrides,
+        List<ValidationIssue> issues)
+    {
+        var applied = new List<(int Index, long Frames)>();
+        for (var i = 0; i < images.Count; i++)
+        {
+            if (durationOverrides.TryGetValue(images[i].FilePath, out var frames) && frames > 0)
+            {
+                applied.Add((i, frames));
+            }
+        }
+
+        if (applied.Count == 0)
+        {
+            return;
+        }
+
+        var others = images.Count - applied.Count;
+        var remaining = totalFrames - applied.Sum(a => a.Frames);
+        if (remaining < Math.Max(1, others) && others > 0 ||
+            others == 0 && remaining != 0)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Warning, "TIMING_OVERRIDE_IGNORED",
+                $"Scene {scene.SceneId}: duration overrides do not fit the scene window; ignoring them."));
+            return;
+        }
+
+        foreach (var (index, frames) in applied)
+        {
+            durations[index] = frames;
+        }
+
+        if (others > 0)
+        {
+            var perOther = remaining / others;
+            var extra = (int)(remaining - perOther * others);
+            var otherIndex = 0;
+            for (var i = 0; i < images.Count; i++)
+            {
+                if (applied.Any(a => a.Index == i))
+                {
+                    continue;
+                }
+
+                durations[i] = perOther + (otherIndex < extra ? 1 : 0);
+                otherIndex++;
+            }
+        }
     }
 }
