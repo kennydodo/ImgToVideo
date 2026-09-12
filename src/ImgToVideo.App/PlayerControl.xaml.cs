@@ -11,11 +11,31 @@ public partial class PlayerControl : UserControl
     private bool _isPlaying;
     private bool _isSeeking;
     private bool _suppressPositionEvents;
+    private double _lastLiveSeekSeconds = -1;
 
     public event EventHandler<Exception>? PlaybackFailed;
 
+    /// <summary>Raised ~10x per second and while scrubbing, with the current position in seconds.</summary>
+    public event EventHandler<double>? PositionChanged;
+
+    private bool _autoPlayCurrent = true;
+
     public string? CurrentPath { get; private set; }
     public string CurrentTitle { get; private set; } = string.Empty;
+
+    public void SetOverlay(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            TxtOverlay.Text = string.Empty;
+            OverlayHost.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            TxtOverlay.Text = text;
+            OverlayHost.Visibility = Visibility.Visible;
+        }
+    }
 
     public PlayerControl()
     {
@@ -25,17 +45,18 @@ public partial class PlayerControl : UserControl
 
         Loaded += (_, _) =>
         {
-            if (CurrentPath is not null)
+            if (CurrentPath is not null && _autoPlayCurrent)
             {
                 PlayFromStart();
             }
         };
     }
 
-    public void Load(string path, string title)
+    public void Load(string path, string title, bool autoPlay = true)
     {
         CurrentPath = path;
         CurrentTitle = title;
+        _autoPlayCurrent = autoPlay;
         TxtTitle.Text = title;
         TxtSubtitle.Text = path;
         BtnPlayPause.IsEnabled = true;
@@ -45,8 +66,16 @@ public partial class PlayerControl : UserControl
         SldPosition.Value = 0;
         _suppressPositionEvents = false;
         TxtTime.Text = "0:00 / 0:00";
+        SetOverlay(null);
         Player.Source = new Uri(path);
-        PlayFromStart();
+        if (_autoPlayCurrent)
+        {
+            PlayFromStart();
+        }
+        else
+        {
+            SetPlaying(false);
+        }
     }
 
     public void ShowNote(string text) => TxtSubtitle.Text = text;
@@ -76,13 +105,21 @@ public partial class PlayerControl : UserControl
         TxtTime.Text = "0:00 / 0:00";
         TxtTitle.Text = "No preview loaded";
         TxtSubtitle.Text = string.Empty;
+        SetOverlay(null);
         CurrentPath = null;
         CurrentTitle = string.Empty;
     }
 
     private void Player_MediaOpened(object sender, RoutedEventArgs e)
     {
-        PlayFromStart();
+        if (_autoPlayCurrent)
+        {
+            PlayFromStart();
+        }
+        else
+        {
+            UpdatePositionUi();
+        }
     }
 
     private void Player_MediaEnded(object sender, RoutedEventArgs e)
@@ -152,7 +189,15 @@ public partial class PlayerControl : UserControl
 
         if (_isSeeking)
         {
-            UpdateTimeLabel(TimeSpan.FromSeconds(Math.Max(0, e.NewValue)));
+            var seconds = Math.Max(0, e.NewValue);
+            UpdateTimeLabel(TimeSpan.FromSeconds(seconds));
+            PositionChanged?.Invoke(this, seconds);
+            if (Math.Abs(seconds - _lastLiveSeekSeconds) >= 0.2)
+            {
+                _lastLiveSeekSeconds = seconds;
+                SeekTo(seconds);
+            }
+
             return;
         }
 
@@ -222,6 +267,8 @@ public partial class PlayerControl : UserControl
             _suppressPositionEvents = false;
             UpdateTimeLabel(Player.Position);
         }
+
+        PositionChanged?.Invoke(this, Player.Position.TotalSeconds);
     }
 
     private void UpdateTimeLabel(TimeSpan current)

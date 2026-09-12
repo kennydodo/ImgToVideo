@@ -20,15 +20,30 @@
                            FontSize="11" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
 
-            <MediaElement Grid.Row="1" x:Name="Player"
-                          LoadedBehavior="Manual"
-                          UnloadedBehavior="Stop"
-                          MediaOpened="Player_MediaOpened"
-                          MediaFailed="Player_MediaFailed"
-                          MediaEnded="Player_MediaEnded"
-                          HorizontalAlignment="Center"
-                          VerticalAlignment="Center"
-                          Stretch="Uniform"/>
+            <Grid Grid.Row="1">
+                <MediaElement x:Name="Player"
+                              LoadedBehavior="Manual"
+                              UnloadedBehavior="Stop"
+                              MediaOpened="Player_MediaOpened"
+                              MediaFailed="Player_MediaFailed"
+                              MediaEnded="Player_MediaEnded"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"
+                              Stretch="Uniform"/>
+                <Border x:Name="OverlayHost"
+                        Background="#CC14161B"
+                        CornerRadius="4"
+                        Padding="8,4"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Bottom"
+                        Margin="8,0,0,8"
+                        IsHitTestVisible="False"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="TxtOverlay"
+                               Foreground="{StaticResource BrushTextPrimary}"
+                               FontSize="13"/>
+                </Border>
+            </Grid>
 
             <Grid Grid.Row="2" Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>

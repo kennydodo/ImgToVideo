@@ -46,6 +46,9 @@
                         <CheckBox x:Name="ChkAutoMotion" Content="Automatic zoom and pan (unsuffixed images)"
                                   Margin="0,2,0,6"/>
                         <UniformGrid Columns="2">
+                            <TextBlock Text="Motion completes after (ms)" VerticalAlignment="Center"
+                                       ToolTip="0 = motion runs for the whole clip. Applies to manifest-planned shots; override per shot with motion duration_ms in the shotlist."/>
+                            <TextBox x:Name="TxtMotionDuration" Padding="3,2" Margin="0,2,12,2"/>
                             <TextBlock Text="Easing" VerticalAlignment="Center"/>
                             <ComboBox x:Name="CmbEasing" Margin="0,2,12,2"/>
                             <TextBlock Text="Push-in start %" VerticalAlignment="Center"/>

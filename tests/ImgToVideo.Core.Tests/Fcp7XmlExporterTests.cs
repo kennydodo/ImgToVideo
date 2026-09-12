@@ -153,15 +153,16 @@ public class Fcp7XmlExporterTests
 
         var clipItem = ClipItem(doc, "clipitem-1");
 
+        // Eased motion is sampled (~2 keyframes/second): 90 frames @ 30 fps -> 6 samples.
         var scale = ScalarKeyframes(clipItem, "scale");
-        Assert.Equal(2, scale.Length);
+        Assert.Equal(6, scale.Length);
         Assert.Equal(("0", "120"), scale[0]);
-        Assert.Equal(("89", "128"), scale[1]);
+        Assert.Equal(("89", "128"), scale[^1]);
+        Assert.Equal(scale, scale.OrderBy(k => long.Parse(k.When)));
 
         var center = CenterKeyframes(clipItem);
-        Assert.Equal(2, center.Length);
-        Assert.Equal(("0", "960", "540"), center[0]);
-        Assert.Equal(("89", "960", "540"), center[1]);
+        Assert.Equal(6, center.Length);
+        Assert.All(center, k => Assert.Equal(("960", "540"), (k.Horiz, k.Vert)));
     }
 
     [Fact]
@@ -173,12 +174,27 @@ public class Fcp7XmlExporterTests
         var clipItem = ClipItem(doc, "clipitem-2");
 
         var scale = ScalarKeyframes(clipItem, "scale");
-        Assert.Equal(("0", "150"), scale[0]);
-        Assert.Equal(("89", "150"), scale[1]);
+        Assert.Equal(6, scale.Length);
+        Assert.All(scale, k => Assert.Equal("150", k.Value));
 
         var center = CenterKeyframes(clipItem);
+        Assert.Equal(6, center.Length);
         Assert.Equal(("0", "1440", "540"), center[0]);
-        Assert.Equal(("89", "480", "540"), center[1]);
+        Assert.Equal(("89", "480", "540"), center[^1]);
+        var horiz = center.Select(k => double.Parse(k.Horiz, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        Assert.Equal(horiz, horiz.OrderByDescending(v => v).ToArray());
+    }
+
+    [Fact]
+    public void Motion_effect_is_wrapped_in_a_filter()
+    {
+        var (timeline, images) = Sample();
+        var doc = XDocument.Parse(Fcp7XmlExporter.Export(timeline, images));
+
+        var clipItem = ClipItem(doc, "clipitem-1");
+
+        Assert.NotNull(clipItem.Element("filter")?.Element("effect"));
+        Assert.Equal("basic", clipItem.Element("filter")?.Element("effect")?.Element("effectid")?.Value);
     }
 
     [Fact]

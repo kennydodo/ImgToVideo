@@ -29,10 +29,70 @@ public static class Fcp7XmlExporter
         var totalFrames = clips.Sum(c => c.DurationFrames);
         var audioFrames = timeline.Audio.DurationFrames > 0 ? timeline.Audio.DurationFrames : totalFrames;
 
+        // V1 carries every clip at its timeline position. Clips whose incoming
+        // transition can be expressed with opacity (crossfade/dissolve/dips)
+        // are duplicated on V2 (above V1), starting `frames` earlier, with an
+        // opacity ramp — Premiere blends them over V1. Dips also fade the
+        // outgoing clip's tail on V1.
+        var baseItems = new List<XElement>();
+        var overlayItems = new List<XElement>();
+
+        for (var index = 0; index < clips.Count; index++)
+        {
+            var clip = clips[index];
+            var transition = index > 0 ? clip.Transition : null;
+            var frames = transition?.DurationFrames ?? 0;
+            var overlap = transition is not null && frames >= 2
+                ? transition.Kind switch
+                {
+                    TransitionKind.Crossfade => OverlapStyle.FadeIn,
+                    TransitionKind.Dissolve => OverlapStyle.FadeIn,
+                    TransitionKind.FadeBlack => OverlapStyle.Dip,
+                    TransitionKind.FadeWhite => OverlapStyle.Dip,
+                    _ => OverlapStyle.None,
+                }
+                : OverlapStyle.None;
+
+            if (overlap == OverlapStyle.None)
+            {
+                baseItems.Add(BuildVideoClipItem(
+                    clip, dimensions, index, timebase, timeline.Resolution, options,
+                    startOffset: 0, extraTail: 0, opacityRamp: null));
+                continue;
+            }
+
+            baseItems.Add(BuildVideoClipItem(
+                clip, dimensions, index, timebase, timeline.Resolution, options,
+                startOffset: 0, extraTail: 0,
+                opacityRamp: overlap == OverlapStyle.Dip
+                    ? (clip.DurationFrames - frames, 100.0, clip.DurationFrames, 0.0)
+                    : null));
+
+            overlayItems.Add(BuildVideoClipItem(
+                clip, dimensions, index, timebase, timeline.Resolution, options,
+                startOffset: -frames, extraTail: frames,
+                opacityRamp: (0, 0.0, frames, 100.0)));
+        }
+
         var videoTrack = new XElement("track",
-            clips.Select((clip, index) =>
-                BuildVideoClipItem(clip, dimensions, index, timebase, timeline.Resolution, options)),
+            baseItems,
             new XElement("enabled", "TRUE"));
+
+        var videoMedia = new XElement("video",
+            new XElement("format",
+                new XElement("samplecharacteristics",
+                    Rate(timebase),
+                    new XElement("width", timeline.Resolution.Width.ToString(CultureInfo.InvariantCulture)),
+                    new XElement("height", timeline.Resolution.Height.ToString(CultureInfo.InvariantCulture)),
+                    new XElement("pixelaspectratio", "square"))),
+            videoTrack);
+
+        if (overlayItems.Count > 0)
+        {
+            videoMedia.Add(new XElement("track",
+                overlayItems,
+                new XElement("enabled", "TRUE")));
+        }
 
         var audioTrack = new XElement("track",
             BuildAudioClipItem(timeline, timebase, audioFrames),
@@ -56,14 +116,7 @@ public static class Fcp7XmlExporter
                 new XElement("frame", "0"),
                 new XElement("displayformat", "NDF")),
             new XElement("media",
-                new XElement("video",
-                    new XElement("format",
-                        new XElement("samplecharacteristics",
-                            Rate(timebase),
-                            new XElement("width", timeline.Resolution.Width.ToString(CultureInfo.InvariantCulture)),
-                            new XElement("height", timeline.Resolution.Height.ToString(CultureInfo.InvariantCulture)),
-                            new XElement("pixelaspectratio", "square"))),
-                    videoTrack),
+                videoMedia,
                 new XElement("audio",
                     new XElement("samplecharacteristics",
                         new XElement("depth", "16"),
@@ -74,28 +127,39 @@ public static class Fcp7XmlExporter
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Environment.NewLine + root;
     }
 
+    private enum OverlapStyle
+    {
+        None,
+        FadeIn,
+        Dip,
+    }
+
     private static XElement BuildVideoClipItem(
         VideoClip clip,
         IReadOnlyDictionary<string, (int Width, int Height)> dimensions,
         int index,
         int timebase,
         Resolution resolution,
-        PremiereExportOptions options)
+        PremiereExportOptions options,
+        long startOffset,
+        long extraTail,
+        (long Frame, double Value, long Frame2, double Value2)? opacityRamp)
     {
         var (sourceWidth, sourceHeight) = dimensions[clip.FilePath];
-        var duration = clip.DurationFrames;
+        var duration = clip.DurationFrames + extraTail;
         var fileName = Path.GetFileName(clip.FilePath);
         var idSuffix = (index + 1).ToString(CultureInfo.InvariantCulture);
+        var start = clip.StartFrame + startOffset;
 
         var clipItem = new XElement("clipitem",
-            new XAttribute("id", $"clipitem-{idSuffix}"),
+            new XAttribute("id", $"clipitem-{idSuffix}{(extraTail > 0 ? "-x" : "")}"),
             new XElement("masterclipid", $"masterclip-{idSuffix}"),
             new XElement("name", fileName),
             new XElement("enabled", "TRUE"),
             new XElement("duration", duration.ToString(CultureInfo.InvariantCulture)),
             Rate(timebase),
-            new XElement("start", clip.StartFrame.ToString(CultureInfo.InvariantCulture)),
-            new XElement("end", (clip.StartFrame + duration).ToString(CultureInfo.InvariantCulture)),
+            new XElement("start", start.ToString(CultureInfo.InvariantCulture)),
+            new XElement("end", (start + duration).ToString(CultureInfo.InvariantCulture)),
             new XElement("in", "0"),
             new XElement("out", duration.ToString(CultureInfo.InvariantCulture)),
             new XElement("file",
@@ -111,28 +175,41 @@ public static class Fcp7XmlExporter
                             new XElement("width", sourceWidth.ToString(CultureInfo.InvariantCulture)),
                             new XElement("height", sourceHeight.ToString(CultureInfo.InvariantCulture)))))));
 
-        if (options.IncludeMotionKeyframes)
+        if (options.IncludeMotionKeyframes || opacityRamp is not null)
         {
-            clipItem.Add(BuildMotionEffect(clip, sourceWidth, sourceHeight, resolution, idSuffix));
+            clipItem.Add(new XElement("filter",
+                BuildMotionFilter(clip, sourceWidth, sourceHeight, resolution, idSuffix, duration, timebase, opacityRamp)));
         }
 
         return clipItem;
     }
 
-    private static XElement BuildMotionEffect(
-        VideoClip clip, int sourceWidth, int sourceHeight, Resolution resolution, string idSuffix)
+    private static XElement BuildMotionFilter(
+        VideoClip clip,
+        int sourceWidth,
+        int sourceHeight,
+        Resolution resolution,
+        string idSuffix,
+        long duration,
+        int timebase,
+        (long Frame, double Value, long Frame2, double Value2)? opacityRamp)
     {
-        var duration = clip.DurationFrames;
-        var keyframeFrames = duration > 1 ? new[] { 0L, duration - 1 } : new[] { 0L };
+        double Progress(long f) => duration > 1
+            ? Eased(clip.Easing, f / (double)(duration - 1))
+            : 0.0;
 
-        double ViewportWidth(long f) => Lerp(clip.StartViewport.Width, clip.EndViewport.Width, f, duration);
-        double ViewportHeight(long f) => Lerp(clip.StartViewport.Height, clip.EndViewport.Height, f, duration);
+        double ViewportWidth(long f) =>
+            clip.StartViewport.Width + (clip.EndViewport.Width - clip.StartViewport.Width) * Progress(f);
+        double ViewportHeight(long f) =>
+            clip.StartViewport.Height + (clip.EndViewport.Height - clip.StartViewport.Height) * Progress(f);
         double ViewportCenterX(long f) =>
-            Lerp(clip.StartViewport.X + clip.StartViewport.Width / 2.0,
-                 clip.EndViewport.X + clip.EndViewport.Width / 2.0, f, duration);
+            clip.StartViewport.X + clip.StartViewport.Width / 2.0 +
+            (clip.EndViewport.X + clip.EndViewport.Width / 2.0 -
+             (clip.StartViewport.X + clip.StartViewport.Width / 2.0)) * Progress(f);
         double ViewportCenterY(long f) =>
-            Lerp(clip.StartViewport.Y + clip.StartViewport.Height / 2.0,
-                 clip.EndViewport.Y + clip.EndViewport.Height / 2.0, f, duration);
+            clip.StartViewport.Y + clip.StartViewport.Height / 2.0 +
+            (clip.EndViewport.Y + clip.EndViewport.Height / 2.0 -
+             (clip.StartViewport.Y + clip.StartViewport.Height / 2.0)) * Progress(f);
 
         double ScaleAt(long f) => sourceWidth * 100.0 / ViewportWidth(f);
         double HorizAt(long f) =>
@@ -142,12 +219,21 @@ public static class Fcp7XmlExporter
             resolution.Height / 2.0 +
             (sourceHeight / 2.0 - ViewportCenterY(f)) * (resolution.Height / ViewportHeight(f));
 
+        // Sample the eased motion every ~half second (min 2, max 13 keyframes)
+        // so Premiere reproduces the easing instead of a linear slide.
+        var sampleCount = Math.Clamp((int)Math.Ceiling(duration / (timebase / 2.0)), 2, 13);
+        var samples = new List<long>();
+        for (var i = 0; i < sampleCount; i++)
+        {
+            samples.Add(duration > 1 ? (long)Math.Round(i * (double)(duration - 1) / (sampleCount - 1)) : 0);
+        }
+
         var scaleParameter = new XElement("parameter",
             new XAttribute("authoringApp", "PremierePro"),
             new XElement("parameterid", "scale"),
             new XElement("name", "Scale"),
-            new XElement("value", F(ScaleAt(keyframeFrames[0]))),
-            keyframeFrames.Select(f => new XElement("keyframe",
+            new XElement("value", F(ScaleAt(samples[0]))),
+            samples.Select(f => new XElement("keyframe",
                 new XElement("when", f.ToString(CultureInfo.InvariantCulture)),
                 new XElement("value", F(ScaleAt(f))))));
 
@@ -155,8 +241,8 @@ public static class Fcp7XmlExporter
             new XAttribute("authoringApp", "PremierePro"),
             new XElement("parameterid", "center"),
             new XElement("name", "Position"),
-            CenterValue(HorizAt(keyframeFrames[0]), VertAt(keyframeFrames[0])),
-            keyframeFrames.Select(f => new XElement("keyframe",
+            CenterValue(HorizAt(samples[0]), VertAt(samples[0])),
+            samples.Select(f => new XElement("keyframe",
                 new XElement("when", f.ToString(CultureInfo.InvariantCulture)),
                 CenterValue(HorizAt(f), VertAt(f)))));
 
@@ -166,7 +252,7 @@ public static class Fcp7XmlExporter
             new XElement("name", "Rotation"),
             new XElement("value", "0"));
 
-        return new XElement("effect",
+        var effect = new XElement("effect",
             new XAttribute("id", $"basic-motion-{idSuffix}"),
             new XElement("name", "Motion"),
             new XElement("effectid", "basic"),
@@ -176,6 +262,35 @@ public static class Fcp7XmlExporter
             scaleParameter,
             centerParameter,
             rotationParameter);
+
+        if (opacityRamp is { } ramp)
+        {
+            effect.Add(new XElement("parameter",
+                new XAttribute("authoringApp", "PremierePro"),
+                new XElement("parameterid", "opacity"),
+                new XElement("name", "Opacity"),
+                new XElement("value", F(ramp.Value)),
+                new XElement("keyframe",
+                    new XElement("when", ramp.Frame.ToString(CultureInfo.InvariantCulture)),
+                    new XElement("value", F(ramp.Value))),
+                new XElement("keyframe",
+                    new XElement("when", ramp.Frame2.ToString(CultureInfo.InvariantCulture)),
+                    new XElement("value", F(ramp.Value2)))));
+        }
+
+        return effect;
+    }
+
+    private static double Eased(EasingMode easing, double progress)
+    {
+        progress = Math.Clamp(progress, 0, 1);
+        return easing switch
+        {
+            EasingMode.EaseIn => progress * progress,
+            EasingMode.EaseOut => 1 - (1 - progress) * (1 - progress),
+            EasingMode.EaseInOut => progress * progress * progress * (progress * (progress * 6 - 15) + 10),
+            _ => progress,
+        };
     }
 
     private static XElement BuildAudioClipItem(Timeline timeline, int timebase, long audioFrames)
@@ -212,9 +327,6 @@ public static class Fcp7XmlExporter
         new XElement("value",
             new XElement("horiz", F(horiz)),
             new XElement("vert", F(vert)));
-
-    private static double Lerp(double start, double end, long frame, long duration) =>
-        duration > 1 ? start + (end - start) * frame / (duration - 1) : start;
 
     private static XElement Rate(int timebase) =>
         new XElement("rate",

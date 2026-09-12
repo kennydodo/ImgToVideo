@@ -16,6 +16,8 @@ public sealed class MotionTypeJsonConverter : JsonConverter<MotionType>
             "zoom_out" => MotionType.ZoomOut,
             "pan_left" => MotionType.PanLeft,
             "pan_right" => MotionType.PanRight,
+            "pan_up" => MotionType.PanUp,
+            "pan_down" => MotionType.PanDown,
             "pan_reveal" => MotionType.PanReveal,
             _ => throw new JsonException($"Unknown motion \"{value}\"."),
         };
@@ -30,6 +32,8 @@ public sealed class MotionTypeJsonConverter : JsonConverter<MotionType>
             MotionType.ZoomOut => "zoom_out",
             MotionType.PanLeft => "pan_left",
             MotionType.PanRight => "pan_right",
+            MotionType.PanUp => "pan_up",
+            MotionType.PanDown => "pan_down",
             MotionType.PanReveal => "pan_reveal",
             _ => throw new JsonException($"Unhandled motion {value}."),
         });

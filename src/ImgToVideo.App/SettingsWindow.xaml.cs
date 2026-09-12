@@ -44,6 +44,7 @@ public partial class SettingsWindow : Window
         TxtTimingFloor.Text = F(Options.Timing.FloorImageSeconds);
 
         ChkAutoMotion.IsChecked = Options.Motion.AutoMotionEnabled;
+        TxtMotionDuration.Text = Options.Motion.MotionDurationMs.ToString(CultureInfo.InvariantCulture);
         CmbEasing.ItemsSource = EasingModes.All.Select(e => e.Name).ToList();
         CmbEasing.SelectedItem = EasingModes.NameOf(Options.Motion.Easing);
         TxtPushInStart.Text = F(Options.Motion.PushInStartPercent);
@@ -104,6 +105,7 @@ public partial class SettingsWindow : Window
             Motion = new MotionOptions
             {
                 AutoMotionEnabled = ChkAutoMotion.IsChecked == true,
+                MotionDurationMs = L(TxtMotionDuration.Text, Options.Motion.MotionDurationMs),
                 Easing = EasingModes.TryFromName(CmbEasing.SelectedItem as string ?? "", out var easing)
                     ? easing
                     : Options.Motion.Easing,
@@ -220,6 +222,11 @@ public partial class SettingsWindow : Window
 
     private static int I(string text, int fallback) =>
         int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : fallback;
+
+    private static long L(string text, long fallback) =>
+        long.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value >= 0
             ? value
             : fallback;
 

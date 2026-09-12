@@ -32,6 +32,7 @@
         <x:Array x:Key="TransitionChoices" Type="sys:String"
                  xmlns:sys="clr-namespace:System;assembly=mscorlib">
             <sys:String>Auto</sys:String>
+            <sys:String>Cut</sys:String>
             <sys:String>Crossfade</sys:String>
             <sys:String>Dip to black</sys:String>
             <sys:String>Dip to white</sys:String>
@@ -98,6 +99,18 @@
             </StackPanel>
         </Border>
 
+        <Border DockPanel.Dock="Bottom"
+                Background="{StaticResource BrushRecessed}"
+                BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="1" CornerRadius="4" Padding="6" Margin="0,10,0,0">
+            <StackPanel>
+                <Grid x:Name="StripGrid" Height="36" MinHeight="36"/>
+                <TextBlock FontSize="10.5" Margin="0,4,0,0"
+                           Foreground="{StaticResource BrushTextTertiary}"
+                           Text="Timeline strip — each block is one shot, sized by its frames. Drag the handle between blocks to move the cut; the accent outline follows playback."/>
+            </StackPanel>
+        </Border>
+
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <Grid Margin="0,0,0,4">
@@ -148,18 +161,27 @@
                                 <ComboBox Grid.Column="2" Margin="0,0,4,0"
                                           ItemsSource="{StaticResource EasingChoices}"
                                           SelectedItem="{Binding Easing, Mode=TwoWay}"/>
-                                <TextBox Grid.Column="3" Text="{Binding Duration, Mode=TwoWay}"/>
+                                <TextBox Grid.Column="3" Text="{Binding Duration, Mode=TwoWay}"
+                                         Tag="{Binding}" TextChanged="DurationBox_TextChanged"/>
                                 <CheckBox Grid.Column="4" IsChecked="{Binding Exclude, Mode=TwoWay}"
+                                          Tag="{Binding}" Checked="ExcludeBox_Changed" Unchecked="ExcludeBox_Changed"
                                           HorizontalAlignment="Center"/>
                                 <ComboBox Grid.Column="5" Margin="0,0,4,0"
                                           ItemsSource="{StaticResource TransitionChoices}"
                                           SelectedItem="{Binding Transition, Mode=TwoWay}"/>
-                                <Slider Grid.Column="6" Minimum="-120" Maximum="120"
-                                        Value="{Binding Nudge, Mode=OneWay}"
-                                        Tag="{Binding}" ValueChanged="NudgeSlider_ValueChanged"
-                                        Visibility="{Binding CanNudge, Converter={StaticResource BoolToVis}}"
-                                        VerticalAlignment="Center" Margin="0,0,8,0"
-                                        ToolTip="Drag to shift the cut after this clip (±120 frames); Frames boxes update live. Shifting a scene-end cut moves frames across the scene boundary."/>
+                                <StackPanel Grid.Column="6" Margin="0,0,8,0"
+                                            Visibility="{Binding CanNudge, Converter={StaticResource BoolToVis}}">
+                                    <Slider Minimum="-120" Maximum="120"
+                                            Value="{Binding Nudge, Mode=OneWay}"
+                                            Tag="{Binding}" ValueChanged="NudgeSlider_ValueChanged"
+                                            VerticalAlignment="Center"
+                                            ToolTip="Drag to shift the cut after this clip (±120 frames); Frames boxes update live. Shifting a scene-end cut moves frames across the scene boundary."/>
+                                    <TextBlock Text="{Binding NudgeLabel}"
+                                               FontSize="10.5"
+                                               Foreground="{StaticResource BrushTextTertiary}"
+                                               HorizontalAlignment="Center"
+                                               ToolTip="{Binding NudgeLabel}"/>
+                                </StackPanel>
                                 <Button Grid.Column="7" Content="↑"
                                         Style="{StaticResource SecondaryButton}" Padding="2,0"
                                         Tag="{Binding}" Click="BtnMoveUp_Click"/>

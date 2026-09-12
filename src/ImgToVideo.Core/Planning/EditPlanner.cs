@@ -46,7 +46,8 @@ public static class EditPlanner
                     inventory.AllImages,
                     options,
                     (long)Math.Round(audioDurationSeconds * options.Output.Fps),
-                    inventory.Overrides);
+                    inventory.Overrides,
+                    inventory.AudioFilePath);
                 issues.AddRange(manifestResult.Issues);
                 if (manifestResult.Timeline is null || ValidationIssue.HasErrors(issues))
                 {

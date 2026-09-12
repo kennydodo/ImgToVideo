@@ -38,7 +38,8 @@ public static class ManifestPlanner
         IReadOnlyList<ImageInfo> images,
         ProjectOptions options,
         long audioFrames,
-        ProjectOverrides overrides)
+        ProjectOverrides overrides,
+        string? audioFilePath = null)
     {
         var issues = new List<ValidationIssue>();
         var fps = options.Output.Fps;
@@ -226,13 +227,26 @@ public static class ManifestPlanner
             clips[^1].Clip.DurationFrames = Math.Max(1, clips[^1].Clip.DurationFrames + fix);
         }
 
+        // Durations may have changed (editor nudges) — recompute start frames
+        // so the timeline stays contiguous for the renderer and VerifyCoverage.
+        var cursorFrames = 0L;
+        foreach (var (clip, _) in clips)
+        {
+            clip.StartFrame = cursorFrames;
+            cursorFrames += clip.DurationFrames;
+        }
+
         // Group consecutive shots with the same scene id into timeline scenes.
         var timeline = new Timeline
         {
             ProjectName = manifest.Video.Title ?? manifest.Video.Id ?? "manifest",
             Resolution = new Resolution(options.Output.Width, options.Output.Height),
             Fps = fps,
-            Audio = new AudioTrack { DurationFrames = audioFrames },
+            Audio = new AudioTrack
+            {
+                FilePath = audioFilePath ?? string.Empty,
+                DurationFrames = audioFrames,
+            },
         };
         foreach (var group in clips.GroupBy(c => c.Clip.SceneId))
         {

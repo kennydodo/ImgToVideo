@@ -4,6 +4,9 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
 using ImgToVideo.Core.Analysis;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Motion;
@@ -50,6 +53,26 @@ public partial class SceneEditorWindow : Window
         /// <summary>Manifest shot id; set for v2-planned rows.</summary>
         public string? ShotId { get; set; }
 
+        public long StartFrame { get; set; }
+
+        public double Fps { get; set; }
+
+        private string _nudgeLabel = string.Empty;
+        public string NudgeLabel
+        {
+            get => _nudgeLabel;
+            set
+            {
+                if (_nudgeLabel == value)
+                {
+                    return;
+                }
+
+                _nudgeLabel = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(NudgeLabel)));
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
     }
 
@@ -66,6 +89,16 @@ public partial class SceneEditorWindow : Window
     private ClipPreviewPlayerWindow? _floatingPlayer;
     private bool _updatingNudge;
     private bool _saved;
+    private List<(double Start, double End, string Label)> _overlayCues = new();
+    private string? _overlaySceneId;
+    private readonly List<Border> _stripSegments = new();
+    private ClipRow? _stripDragRow;
+    private ClipRow? _stripDragNext;
+    private long _stripDragBoundary;
+    private long _stripDragTotal;
+    private int _stripDragColumn;
+    private double _stripDragAccum;
+    private bool _stripDragging;
 
     public bool Saved => _saved;
 
@@ -81,7 +114,224 @@ public partial class SceneEditorWindow : Window
         BuildRows();
         CmbScene.ItemsSource = _timeline.Scenes.Select(s => s.Id).ToList();
         CmbScene.SelectedIndex = 0;
+        PlayerHost.PositionChanged += (_, seconds) => UpdateOverlay(seconds);
     }
+
+    private void SetOverlayCues(IEnumerable<VideoClip> clips)
+    {
+        var fps = _options.Output.Fps;
+        double cursor = 0;
+        var cues = new List<(double Start, double End, string Label)>();
+        foreach (var clip in clips)
+        {
+            var duration = clip.DurationFrames / fps;
+            cues.Add((cursor, cursor + duration, OverlayLabel(clip)));
+            cursor += duration;
+        }
+
+        _overlayCues = cues;
+        PlayerHost.SetOverlay(null);
+    }
+
+    private static string OverlayLabel(VideoClip clip) =>
+        clip.ShotId is null
+            ? Path.GetFileName(clip.FilePath)
+            : $"{clip.ShotId} · {Path.GetFileName(clip.FilePath)}";
+
+    private void UpdateOverlay(double seconds)
+    {
+        if (_overlayCues.Count == 0)
+        {
+            return;
+        }
+
+        var activeIndex = -1;
+        for (var i = 0; i < _overlayCues.Count; i++)
+        {
+            if (seconds + 0.0001 >= _overlayCues[i].Start)
+            {
+                activeIndex = i;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        PlayerHost.SetOverlay(activeIndex >= 0 ? _overlayCues[activeIndex].Label : null);
+        HighlightStripSegment(_overlaySceneId != null && _overlaySceneId == CmbScene.SelectedValue as string
+            ? activeIndex
+            : -1);
+    }
+
+    private void RefreshStrip()
+    {
+        StripGrid.Children.Clear();
+        StripGrid.ColumnDefinitions.Clear();
+        _stripSegments.Clear();
+
+        if (SelectedRows is not { } rows || rows.Count == 0)
+        {
+            return;
+        }
+
+        var visible = rows.Where(r => !r.Exclude).ToList();
+        if (visible.Count == 0)
+        {
+            return;
+        }
+
+        var durations = visible
+            .Select(r => TryParseFrames(r.Duration, out var frames) && frames > 0 ? frames : 0)
+            .ToList();
+        var total = durations.Sum();
+        if (total <= 0)
+        {
+            return;
+        }
+
+        var panelBrush = TryFindResource("BrushPanel") as Brush;
+        var hoverBrush = TryFindResource("BrushHover") as System.Windows.Media.Brush;
+        var textBrush = TryFindResource("BrushTextSecondary") as Brush;
+        var accentBrush = TryFindResource("BrushAccent") as Brush;
+
+        for (var i = 0; i < visible.Count; i++)
+        {
+            var row = visible[i];
+            StripGrid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = new GridLength(durations[i], GridUnitType.Star),
+            });
+
+            var segment = new Border
+            {
+                Background = i % 2 == 0 ? panelBrush : hoverBrush,
+                CornerRadius = new CornerRadius(3),
+                Margin = new Thickness(1, 0, 1, 0),
+                Opacity = 0.65,
+                ToolTip = $"{row.Display} — {durations[i]} frames ({durations[i] / _options.Output.Fps:F1} s)",
+                Child = new TextBlock
+                {
+                    Text = row.ShotId is null ? (i + 1).ToString() : row.ShotId.Replace("shot-", "#"),
+                    Foreground = textBrush,
+                    FontSize = 10,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                },
+            };
+            Grid.SetColumn(segment, i);
+            StripGrid.Children.Add(segment);
+            _stripSegments.Add(segment);
+
+            if (i == visible.Count - 1)
+            {
+                continue;
+            }
+
+            var handle = new Thumb
+            {
+                Width = 10,
+                Background = TryFindResource("BrushBorder") as Brush,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(-5, 5, -5, 5),
+                CornerRadius = new CornerRadius(2),
+                Cursor = Cursors.SizeWE,
+                ToolTip = "Drag to move this cut",
+            };
+            var left = row;
+            var right = visible[i + 1];
+            handle.DragStarted += (_, _) => BeginStripDrag(left, right, i);
+            handle.DragDelta += (_, e) => StripHandleDragged(e);
+            handle.DragCompleted += (_, _) => EndStripDrag();
+            Grid.SetColumn(handle, i + 1);
+            Panel.SetZIndex(handle, 2);
+            StripGrid.Children.Add(handle);
+        }
+    }
+
+    private void BeginStripDrag(ClipRow row, ClipRow next, int column)
+    {
+        _stripDragging = true;
+        _stripDragAccum = 0;
+        _stripDragRow = row;
+        _stripDragNext = next;
+        _stripDragColumn = column;
+        _stripDragBoundary = TryParseFrames(row.Duration, out var d) && d > 0 ? d : 1;
+        _stripDragTotal = _stripDragBoundary +
+                          (TryParseFrames(next.Duration, out var n) && n > 0 ? n : 1);
+    }
+
+    private void StripHandleDragged(DragDeltaEventArgs e)
+    {
+        if (!_stripDragging || _stripDragRow is null || _stripDragNext is null ||
+            StripGrid.ActualWidth < 1)
+        {
+            return;
+        }
+
+        _stripDragAccum += e.HorizontalChange;
+        var boundary = Math.Clamp(
+            _stripDragBoundary + (long)Math.Round(_stripDragAccum / StripGrid.ActualWidth * _stripDragTotal),
+            1, _stripDragTotal - 1);
+
+        if (TryParseFrames(_stripDragRow.Duration, out var current) && current == boundary)
+        {
+            return;
+        }
+
+        _stripDragRow.Duration = boundary.ToString(CultureInfo.InvariantCulture);
+        _stripDragNext.Duration = (_stripDragTotal - boundary).ToString(CultureInfo.InvariantCulture);
+        _stripDragRow.NudgeLabel = NudgeLabelFor(_stripDragRow);
+        _stripDragNext.NudgeLabel = NudgeLabelFor(_stripDragNext);
+        StripGrid.ColumnDefinitions[_stripDragColumn].Width =
+            new GridLength(boundary, GridUnitType.Star);
+        StripGrid.ColumnDefinitions[_stripDragColumn + 1].Width =
+            new GridLength(_stripDragTotal - boundary, GridUnitType.Star);
+    }
+
+    private void EndStripDrag()
+    {
+        if (!_stripDragging)
+        {
+            return;
+        }
+
+        _stripDragging = false;
+        RefreshStrip();
+    }
+
+    private void HighlightStripSegment(int index)
+    {
+        var accentBrush = TryFindResource("BrushAccent") as Brush;
+        for (var i = 0; i < _stripSegments.Count; i++)
+        {
+            var segment = _stripSegments[i];
+            if (i == index)
+            {
+                segment.Opacity = 1.0;
+                segment.BorderBrush = accentBrush;
+                segment.BorderThickness = new Thickness(2);
+            }
+            else
+            {
+                segment.Opacity = 0.65;
+                segment.BorderThickness = new Thickness(0);
+            }
+        }
+    }
+
+    private void DurationBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is ClipRow row)
+        {
+            row.NudgeLabel = NudgeLabelFor(row);
+        }
+
+        RefreshStrip();
+    }
+
+    private void ExcludeBox_Changed(object sender, RoutedEventArgs e) => RefreshStrip();
 
     private void BuildRows()
     {
@@ -102,8 +352,12 @@ public partial class SceneEditorWindow : Window
                     Display = clip.ShotId is null
                         ? Path.GetFileName(clip.FilePath)
                         : $"{clip.ShotId} · {Path.GetFileName(clip.FilePath)}",
-                    Motion = clipOverride?.Motion is { } motion ? CodeOf(motion) : "Auto",
-                    Easing = clipOverride?.Easing is { } easing ? NameOf(easing) : "Auto",
+                    Motion = clipOverride?.Motion is { } motion ? CodeOf(motion)
+                        : clip.ShotId is null ? "Auto"
+                        : CodeOf(clip.Motion),
+                    Easing = clipOverride?.Easing is { } easing ? NameOf(easing)
+                        : clip.ShotId is null ? "Auto"
+                        : NameOf(clip.Easing) ?? "Auto",
                     Duration = (clipOverride?.DurationFrames ?? clip.DurationFrames)
                         .ToString(CultureInfo.InvariantCulture),
                     PlannedDuration = clip.DurationFrames,
@@ -112,11 +366,20 @@ public partial class SceneEditorWindow : Window
                         ? _inventory.Overrides.CutFor(clip.FilePath) is { } cut
                             ? TransitionCatalog.NameOf(cut) ?? "Auto"
                             : "Auto"
-                        : "Auto",
+                        : clip.Transition is { } transition
+                            ? TransitionCatalog.NameOf(transition.Kind) ?? "Auto"
+                            : "Cut",
                     IsFirstClipOfVideo = sceneIndex == 0 && clipIndex == 0,
                     CanNudge = clipIndex < scene.Clips.Count - 1 || sceneIndex < _timeline.Scenes.Count - 1,
                     ShotId = clip.ShotId,
+                    StartFrame = clip.StartFrame,
+                    Fps = _options.Output.Fps,
                 });
+            }
+
+            foreach (var rowEntry in rows)
+            {
+                rowEntry.NudgeLabel = NudgeLabelFor(rowEntry);
             }
 
             _rowsByScene[scene.Id] = rows;
@@ -197,11 +460,13 @@ public partial class SceneEditorWindow : Window
         }
 
         var isSceneBoundary = !string.Equals(previous.SceneId, clip.SceneId, StringComparison.OrdinalIgnoreCase);
-        var kind = row.Transition != "Auto" && TransitionCatalog.TryFromName(row.Transition, out var overridden)
-            ? overridden
-            : isSceneBoundary
-                ? _options.Transitions.SceneBoundaryKind
-                : _options.Transitions.Kind;
+        var kind = clip.ShotId is not null
+            ? clip.Transition?.Kind ?? TransitionKind.None
+            : row.Transition != "Auto" && TransitionCatalog.TryFromName(row.Transition, out var overridden)
+                ? overridden
+                : isSceneBoundary
+                    ? _options.Transitions.SceneBoundaryKind
+                    : _options.Transitions.Kind;
         var frames = (long)Math.Round(_options.Transitions.DurationSeconds * _options.Output.Fps);
         var headTrim = PreviewRenderPlanFactory.HeadTrimFrames(frames, _options);
         if (kind == TransitionKind.None || frames < 2 || previewDurationFrames - headTrim < 1)
@@ -387,6 +652,7 @@ public partial class SceneEditorWindow : Window
     private void CmbScene_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         ClipList.ItemsSource = SelectedRows;
+        RefreshStrip();
     }
 
     private void BtnMoveUp_Click(object sender, RoutedEventArgs e)
@@ -454,7 +720,26 @@ public partial class SceneEditorWindow : Window
         row.Nudge = previous + delta;
         row.Duration = (duration + delta).ToString(CultureInfo.InvariantCulture);
         next.Duration = (nextDuration - delta).ToString(CultureInfo.InvariantCulture);
+        row.NudgeLabel = NudgeLabelFor(row);
+        next.NudgeLabel = NudgeLabelFor(next);
     }
+
+    private string NudgeLabelFor(ClipRow row)
+    {
+        if (!row.CanNudge)
+        {
+            return string.Empty;
+        }
+
+        var duration = TryParseFrames(row.Duration, out var parsed) && parsed > 0
+            ? parsed
+            : row.PlannedDuration;
+        var seconds = (row.StartFrame + duration) / row.Fps;
+        return $"{row.Nudge:+0;-0;±0} · cut @ {FormatTimecode(seconds)}";
+    }
+
+    private static string FormatTimecode(double seconds) =>
+        $"{(int)(seconds / 60)}:{seconds % 60:00.0}";
 
     private void RestoreNudge(Slider slider, ClipRow row)
     {
@@ -678,6 +963,7 @@ public partial class SceneEditorWindow : Window
 
             PreviewRenderOutcome outcome;
             var title = row.Display;
+            List<VideoClip> overlayClips;
             var transition = ResolveTransitionPreview(row, clip, previewClip.DurationFrames);
             if (transition is { } transitionPreview)
             {
@@ -699,6 +985,7 @@ public partial class SceneEditorWindow : Window
                 };
                 previewClip.Transition = tin;
                 var mini = BuildPreviewTimeline(clip.SceneId, [shortened, previewClip]);
+                overlayClips = [shortened, previewClip];
                 var offset = Math.Max(0, clip.StartFrame - tailTrim) / _options.Output.Fps;
                 var progress = new Progress<double>(p =>
                     TxtEditorStatus.Text = $"Rendering clip… {p * 100:F0}%");
@@ -709,6 +996,7 @@ public partial class SceneEditorWindow : Window
             {
                 var renderPath = Path.Combine(partsDirectory, clipName + ".render.mp4");
                 outcome = await RenderSingleClipPreviewAsync(previewClip, image, videoPath, renderPath);
+                overlayClips = [previewClip];
             }
 
             if (outcome.PlayPath is null)
@@ -727,6 +1015,8 @@ public partial class SceneEditorWindow : Window
 
             TxtEditorStatus.Text = "Clip preview ready." +
                 (outcome.Note is null ? "" : " " + outcome.Note);
+            _overlaySceneId = null;
+            SetOverlayCues(overlayClips);
             PlayerHost.Load(outcome.PlayPath, title);
         }
         catch (Exception ex)
@@ -770,6 +1060,7 @@ public partial class SceneEditorWindow : Window
                 var kind = row.Transition != "Auto" &&
                            TransitionCatalog.TryFromName(row.Transition, out var overridden)
                     ? overridden
+                    : row.Transition == "Cut" ? TransitionKind.None
                     : _options.Transitions.Kind;
                 if (kind != TransitionKind.None)
                 {
@@ -822,6 +1113,8 @@ public partial class SceneEditorWindow : Window
 
             TxtEditorStatus.Text = $"Scene {sceneId} preview ready." +
                 (outcome.Note is null ? "" : " " + outcome.Note);
+            _overlaySceneId = sceneId;
+            SetOverlayCues(previewClips);
             PlayerHost.Load(outcome.PlayPath, $"Scene {sceneId}");
         }
         catch (Exception ex)
@@ -851,6 +1144,8 @@ public partial class SceneEditorWindow : Window
         }
 
         ReleasePreviewFiles();
+        _overlaySceneId = null;
+        SetOverlayCues(_timeline.Scenes.SelectMany(s => s.Clips).ToList());
         PlayerHost.Load(previewPath, "Full preview");
         PlayerHost.ShowNote("Reflects saved overrides only — rebuild after editing overrides.");
         TxtEditorStatus.Text = "Playing the full preview (saved overrides only).";
@@ -881,7 +1176,8 @@ public partial class SceneEditorWindow : Window
         if (sender is ClipPreviewPlayerWindow floating)
         {
             floating.Closed -= FloatingPlayer_Closed;
-            PlayerHost.Load(floating.ClipPath, floating.ClipTitle);
+            _overlaySceneId = null;
+            PlayerHost.Load(floating.ClipPath, floating.ClipTitle, autoPlay: false);
         }
     }
 
