@@ -5,6 +5,9 @@ namespace ImgToVideo.Core.Overrides;
 public sealed class ClipOverride
 {
     public string File { get; set; } = string.Empty;
+
+    /// <summary>Manifest shot id; set for v2-planned clips (takes precedence over File matching).</summary>
+    public string? Shot { get; set; }
     public MotionType? Motion { get; set; }
     public EasingMode? Easing { get; set; }
     public long? DurationFrames { get; set; }
@@ -30,6 +33,17 @@ public sealed class ProjectOverrides
     {
         var key = Normalize(filePath);
         return Clips.FirstOrDefault(c => string.Equals(Normalize(c.File), key, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public ClipOverride? ForShot(string shotId)
+    {
+        if (string.IsNullOrEmpty(shotId))
+        {
+            return null;
+        }
+
+        return Clips.FirstOrDefault(c =>
+            string.Equals(c.Shot, shotId, StringComparison.OrdinalIgnoreCase));
     }
 
     public TransitionKind? CutFor(string incomingFilePath)

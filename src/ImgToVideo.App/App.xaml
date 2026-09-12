@@ -190,13 +190,17 @@
                                 BorderThickness="1"
                                 CornerRadius="4"
                                 Padding="{TemplateBinding Padding}">
-                            <StackPanel>
-                                <TextBlock Text="{TemplateBinding Header}"
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="{TemplateBinding Header}"
                                            Foreground="{StaticResource BrushTextLabel}"
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,6"/>
-                                <ContentPresenter/>
-                            </StackPanel>
+                                <ContentPresenter Grid.Row="1"/>
+                            </Grid>
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>

@@ -74,6 +74,61 @@ public class TimingEngineTests
     }
 
     [Fact]
+    public void Paired_full_set_overrides_shift_the_scene_boundary()
+    {
+        var scenes = new[] { Scene("S01", 0, 10, 2), Scene("S02", 10, 20, 2) };
+        var overrides = new Dictionary<string, long>
+        {
+            ["images/S01_01.png"] = 150,
+            ["images/S01_02.png"] = 180,
+            ["images/S02_01.png"] = 120,
+            ["images/S02_02.png"] = 150,
+        };
+
+        var result = TimingEngine.Plan(scenes, 20.0, Options, overrides);
+
+        Assert.DoesNotContain(result.Issues, i => i.Code == "TIMING_OVERRIDE_IGNORED");
+        var s01 = result.Scenes[0];
+        var s02 = result.Scenes[1];
+        Assert.Equal(150, s01.Clips[0].DurationFrames);
+        Assert.Equal(180, s01.Clips[1].DurationFrames);
+        Assert.Equal(120, s02.Clips[0].DurationFrames);
+        Assert.Equal(150, s02.Clips[1].DurationFrames);
+        Assert.Equal(330, s01.EndFrame);
+        Assert.Equal(330, s02.StartFrame);
+
+        long cursor = 0;
+        foreach (var scene in result.Scenes)
+        {
+            foreach (var clip in scene.Clips)
+            {
+                Assert.Equal(cursor, clip.StartFrame);
+                cursor += clip.DurationFrames;
+            }
+        }
+
+        Assert.Equal((long)Math.Round(20.0 * 30), cursor);
+    }
+
+    [Fact]
+    public void Unpaired_full_set_delta_is_ignored_with_warning()
+    {
+        var scenes = new[] { Scene("S01", 0, 10, 2), Scene("S02", 10, 20, 2) };
+        var overrides = new Dictionary<string, long>
+        {
+            ["images/S01_01.png"] = 150,
+            ["images/S01_02.png"] = 180,
+        };
+
+        var result = TimingEngine.Plan(scenes, 20.0, Options, overrides);
+
+        Assert.Contains(result.Issues, i => i.Code == "TIMING_OVERRIDE_IGNORED");
+        var scene = result.Scenes[0];
+        Assert.Equal(150, scene.Clips[0].DurationFrames);
+        Assert.Equal(150, scene.Clips[1].DurationFrames);
+    }
+
+    [Fact]
     public void Scene_boundaries_are_contiguous_and_cover_audio()
     {
         var result = TimingEngine.Plan(

@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ImgToVideo — Video Assembler"
-        Height="680" Width="780"
-        MinHeight="560" MinWidth="640"
+        Height="680" Width="900"
+        MinHeight="560" MinWidth="760"
         Background="{StaticResource BrushWindowBackground}"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="14">
@@ -117,21 +117,37 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" x:Name="BtnAnalyze" Content="ANALYZE PROJECT"
+            <Button Grid.Column="0" x:Name="BtnAnalyze" Content="ANALYZE"
                     Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" Click="BtnAnalyze_Click"/>
             <Button Grid.Column="1" x:Name="BtnBuild" Content="BUILD PREVIEW"
                     Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" IsEnabled="False" Click="BtnBuild_Click"/>
-            <Button Grid.Column="2" x:Name="BtnExport" Content="EXPORT TO PREMIERE"
+            <Button Grid.Column="2" x:Name="BtnFinal" Content="RENDER FINAL"
+                    Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" IsEnabled="False"
+                    ToolTip="Full-resolution render to out\final\final.mp4 plus captions.srt — ready to drop into CapCut."
+                    Click="BtnFinal_Click"/>
+            <Button Grid.Column="3" x:Name="BtnExport" Content="EXPORT TO PREMIERE"
                     Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" IsEnabled="False" Click="BtnExport_Click"/>
-            <Button Grid.Column="3" x:Name="BtnCancel" Content="Cancel"
+            <Button Grid.Column="4" x:Name="BtnCancel" Content="Cancel"
                     Style="{StaticResource SecondaryButton}" IsEnabled="False" Click="BtnCancel_Click"/>
         </Grid>
 
         <GroupBox Grid.Row="5" Header="Diagnostics">
-            <ListBox x:Name="LstIssues"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Button Grid.Row="0" x:Name="BtnCopyDiagnostics" Content="COPY"
+                        Style="{StaticResource SecondaryButton}"
+                        HorizontalAlignment="Right" Margin="0,0,0,4"
+                        ToolTip="Copy all diagnostics to the clipboard (paste into the LLM chat to fix the shot list)."
+                        Click="BtnCopyDiagnostics_Click"/>
+                <ListBox Grid.Row="1" x:Name="LstIssues"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
                         <Setter Property="Template">
@@ -153,7 +169,8 @@
                         </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
-            </ListBox>
+                </ListBox>
+            </Grid>
         </GroupBox>
 
         <StackPanel Grid.Row="6" Margin="0,10,0,0">

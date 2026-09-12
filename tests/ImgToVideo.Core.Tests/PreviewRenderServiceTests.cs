@@ -143,5 +143,80 @@ public class PreviewRenderServiceTests : IDisposable
         Assert.Equal(2.0, seconds, 2);
     }
 
+    [Fact]
+    public async Task Reuses_unchanged_segments_on_second_run()
+    {
+        if (!FFmpegProbe.IsAvailable)
+        {
+            return;
+        }
+
+        var image1 = _project.WriteImage("S01_01.png", 2304, 1296);
+        var audio = _project.WriteSilenceWav("narration.wav", 1.0);
+        var images = new List<ImageInfo>
+        {
+            new(image1, new ParsedImageName("S01_01", 1, 1, null, false), 2304, 1296),
+        };
+
+        var timeline = new Timeline
+        {
+            ProjectName = "reuse",
+            Fps = 30,
+            Audio = new AudioTrack { FilePath = audio, DurationFrames = 30 },
+            Scenes =
+            {
+                new Scene
+                {
+                    Id = "S01",
+                    StartFrame = 0,
+                    EndFrame = 30,
+                    Clips =
+                    {
+                        new VideoClip
+                        {
+                            FilePath = image1,
+                            SceneId = "S01",
+                            StartFrame = 0,
+                            DurationFrames = 30,
+                            Motion = MotionType.ZoomIn,
+                            StartViewport = new Rect(192, 108, 1920, 1080),
+                            EndViewport = new Rect(246.34, 138.57, 1811.32, 1018.87),
+                        },
+                    },
+                },
+            },
+        };
+
+        var options = new ProjectOptions();
+        options.Render.PreviewWidth = 320;
+        options.Render.PreviewHeight = 180;
+        options.Render.PreviewPreset = "ultrafast";
+        options.Render.PreviewCrf = 40;
+
+        var renderDirectory = System.IO.Path.Combine(_project.Path, "out", "render");
+        var previewPath = System.IO.Path.Combine(_project.Path, "out", "preview.mp4");
+        var plan = PreviewRenderPlanFactory.Build(timeline, images, options, renderDirectory, previewPath);
+        var service = new PreviewRenderService(new FfmpegRunner());
+
+        var first = await service.RenderAsync(plan, 2, null, default, reuseUnchangedSegments: true);
+        Assert.True(first.Success, string.Join("\n", first.Errors));
+        Assert.True(File.Exists(System.IO.Path.Combine(renderDirectory, "render-manifest.json")));
+
+        var segmentPath = plan.Segments[0].OutputPath;
+        var stampAfterFirstRun = File.GetLastWriteTimeUtc(segmentPath);
+
+        var second = await service.RenderAsync(plan, 2, null, default, reuseUnchangedSegments: true);
+        Assert.True(second.Success, string.Join("\n", second.Errors));
+        Assert.Equal(stampAfterFirstRun, File.GetLastWriteTimeUtc(segmentPath));
+
+        File.SetLastWriteTimeUtc(image1, stampAfterFirstRun + TimeSpan.FromMinutes(1));
+        var third = await service.RenderAsync(plan, 2, null, default, reuseUnchangedSegments: true);
+        Assert.True(third.Success, string.Join("\n", third.Errors));
+        Assert.True(File.GetLastWriteTimeUtc(segmentPath) > stampAfterFirstRun);
+
+        var fourth = await service.RenderAsync(plan, 2, null, default);
+        Assert.True(fourth.Success, string.Join("\n", fourth.Errors));
+    }
+
     public void Dispose() => _project.Dispose();
 }

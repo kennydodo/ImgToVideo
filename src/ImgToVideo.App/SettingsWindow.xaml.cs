@@ -33,6 +33,11 @@ public partial class SettingsWindow : Window
 
     private void LoadFromOptions()
     {
+        CmbPlanner.ItemsSource = new[] { "v1", "v2" };
+        CmbPlanner.SelectedItem = string.Equals(Options.Planner, "v2", StringComparison.OrdinalIgnoreCase)
+            ? "v2"
+            : "v1";
+
         TxtTimingMin.Text = F(Options.Timing.MinImageSeconds);
         TxtTimingPreferred.Text = F(Options.Timing.PreferredImageSeconds);
         TxtTimingMax.Text = F(Options.Timing.MaxImageSeconds);
@@ -76,6 +81,9 @@ public partial class SettingsWindow : Window
         TxtPreviewHeight.Text = Options.Render.PreviewHeight.ToString(CultureInfo.InvariantCulture);
         TxtPreviewPreset.Text = Options.Render.PreviewPreset;
         TxtPreviewCrf.Text = Options.Render.PreviewCrf.ToString(CultureInfo.InvariantCulture);
+        TxtFinalPreset.Text = Options.Render.FinalPreset;
+        TxtFinalCrf.Text = Options.Render.FinalCrf.ToString(CultureInfo.InvariantCulture);
+        TxtEncoder.Text = Options.Render.Encoder;
         TxtFfmpegPath.Text = Options.Render.FfmpegPath;
         TxtFfprobePath.Text = Options.Render.FfprobePath;
     }
@@ -84,6 +92,8 @@ public partial class SettingsWindow : Window
     {
         var next = new ProjectOptions
         {
+            Planner = CmbPlanner.SelectedItem as string ?? Options.Planner,
+
             Timing = new TimingOptions
             {
                 MinImageSeconds = D(TxtTimingMin.Text, Options.Timing.MinImageSeconds),
@@ -150,6 +160,9 @@ public partial class SettingsWindow : Window
                 PreviewHeight = I(TxtPreviewHeight.Text, Options.Render.PreviewHeight),
                 PreviewPreset = TxtPreviewPreset.Text.Length > 0 ? TxtPreviewPreset.Text : Options.Render.PreviewPreset,
                 PreviewCrf = I(TxtPreviewCrf.Text, Options.Render.PreviewCrf),
+                FinalPreset = TxtFinalPreset.Text.Length > 0 ? TxtFinalPreset.Text : Options.Render.FinalPreset,
+                FinalCrf = I(TxtFinalCrf.Text, Options.Render.FinalCrf),
+                Encoder = TxtEncoder.Text.Length > 0 ? TxtEncoder.Text : Options.Render.Encoder,
                 FfmpegPath = TxtFfmpegPath.Text.Length > 0 ? TxtFfmpegPath.Text : Options.Render.FfmpegPath,
                 FfprobePath = TxtFfprobePath.Text.Length > 0 ? TxtFfprobePath.Text : Options.Render.FfprobePath,
             },

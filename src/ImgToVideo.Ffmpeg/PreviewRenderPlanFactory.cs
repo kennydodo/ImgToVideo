@@ -144,6 +144,12 @@ public static class PreviewRenderPlanFactory
             ? 0
             : (transitionFrames + 1) / 2;
 
+    public static long TailTrimFrames(long transitionFrames, ProjectOptions options) =>
+        TailTrim(transitionFrames, options);
+
+    public static long HeadTrimFrames(long transitionFrames, ProjectOptions options) =>
+        HeadTrim(transitionFrames, options);
+
     public static IReadOnlyList<string> BuildClipPreviewArguments(
         VideoClip clip, int sourceWidth, int sourceHeight, ProjectOptions options, string outputPath) =>
         BuildSegmentArguments(clip, sourceWidth, sourceHeight, 0, clip.DurationFrames, options, outputPath);
@@ -298,16 +304,108 @@ public static class PreviewRenderPlanFactory
 
         args.Add("-frames:v");
         args.Add(frameCount.ToString(CultureInfo.InvariantCulture));
-        args.Add("-c:v");
-        args.Add("libx264");
-        args.Add("-preset");
-        args.Add(render.PreviewPreset);
-        args.Add("-crf");
-        args.Add(render.PreviewCrf.ToString(CultureInfo.InvariantCulture));
+        args.AddRange(VideoEncoderArgs(render.Encoder, render.PreviewPreset, render.PreviewCrf));
         args.Add("-an");
         args.Add(outputPath);
         return args;
     }
+
+    /// <summary>
+    /// Resolves the configured encoder to a concrete ffmpeg encoder name, falling
+    /// back to CPU libx264 when a hardware encoder is requested but unavailable.
+    /// </summary>
+    public static string ResolveEncoder(RenderOptions render)
+    {
+        var configured = (render.Encoder ?? "auto").Trim().ToLowerInvariant();
+        if (configured is "libx264" or "cpu")
+        {
+            return "libx264";
+        }
+
+        var candidates = configured switch
+        {
+            "h264_nvenc" or "nvenc" => ["h264_nvenc"],
+            "h264_amf" or "amf" => ["h264_amf"],
+            "h264_qsv" or "qsv" => ["h264_qsv"],
+            _ => (IReadOnlyList<string>)["h264_nvenc", "h264_amf", "h264_qsv"],
+        };
+
+        var available = EncoderProbe.GetEncoders(render.FfmpegPath);
+        foreach (var candidate in candidates)
+        {
+            if (available.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return "libx264";
+    }
+
+    /// <summary>Pure mapping of encoder + libx264-style preset/CRF onto encoder arguments.</summary>
+    public static IReadOnlyList<string> VideoEncoderArgs(string encoder, string preset, int crf)
+    {
+        var crfText = crf.ToString(CultureInfo.InvariantCulture);
+        return encoder switch
+        {
+            "h264_nvenc" =>
+            [
+                "-c:v", "h264_nvenc",
+                "-preset", NvencPreset(preset),
+                "-rc", "vbr",
+                "-cq", crfText,
+                "-b:v", "0",
+            ],
+            "h264_qsv" =>
+            [
+                "-c:v", "h264_qsv",
+                "-preset", QsvPreset(preset),
+                "-global_quality", crfText,
+            ],
+            "h264_amf" =>
+            [
+                "-c:v", "h264_amf",
+                "-quality", AmfQuality(preset),
+                "-rc", "cqp",
+                "-qp_i", crfText,
+                "-qp_p", crfText,
+            ],
+            _ =>
+            [
+                "-c:v", "libx264",
+                "-preset", preset,
+                "-crf", crfText,
+            ],
+        };
+    }
+
+    private static string NvencPreset(string preset) => preset.ToLowerInvariant() switch
+    {
+        "ultrafast" => "p1",
+        "superfast" => "p2",
+        "veryfast" => "p3",
+        "faster" => "p4",
+        "fast" => "p4",
+        "medium" => "p5",
+        "slow" => "p6",
+        "slower" => "p7",
+        "veryslow" => "p7",
+        _ => "p5",
+    };
+
+    private static string QsvPreset(string preset) => preset.ToLowerInvariant() switch
+    {
+        "ultrafast" or "superfast" or "veryfast" or "faster" or "fast" => preset.ToLowerInvariant(),
+        "slow" or "slower" or "veryslow" => preset.ToLowerInvariant(),
+        _ => "medium",
+    };
+
+    private static string AmfQuality(string preset) => preset.ToLowerInvariant() switch
+    {
+        "ultrafast" or "superfast" or "veryfast" or "faster" or "fast" => "speed",
+        "slow" or "slower" or "veryslow" => "quality",
+        _ => "balanced",
+    };
 
     private static string BuildZoompanFilter(
         VideoClip clip, long sourceWidth, long scaledWidth, long scaledHeight,
@@ -315,6 +413,9 @@ public static class PreviewRenderPlanFactory
     {
         var clipDuration = clip.DurationFrames;
         var steps = clipDuration > 1 ? clipDuration - 1 : 1;
+        var motionSteps = clip.MotionDurationFrames is { } motionEnd && motionEnd > 1
+            ? Math.Max(1, Math.Min(motionEnd - 1, steps))
+            : steps;
         var supersample = (double)scaledWidth / sourceWidth;
 
         var widthStart = supersample * clip.StartViewport.Width;
@@ -332,7 +433,7 @@ public static class PreviewRenderPlanFactory
         string yExpression;
         if (pieceCount <= 1)
         {
-            var progress = EasingValue(clip.Easing, clipDuration > 1 ? (double)pieceStart / steps : 0.0);
+            var progress = EasingValue(clip.Easing, clipDuration > 1 ? (double)pieceStart / motionSteps : 0.0);
             var width = clip.StartViewport.Width + (clip.EndViewport.Width - clip.StartViewport.Width) * progress;
             var centerX = (clip.StartViewport.X + clip.StartViewport.Width / 2.0) +
                           ((clip.EndViewport.X - clip.StartViewport.X) * progress);
@@ -347,7 +448,14 @@ public static class PreviewRenderPlanFactory
         }
         else
         {
-            var progress = EasingExpression(clip.Easing, $"((on{SignedOffset(pieceStart)})/{steps})");
+            var rawProgress = $"((on{SignedOffset(pieceStart)})/{motionSteps})";
+            if (motionSteps != steps)
+            {
+                // The move completes after motionSteps frames and the framing holds.
+                rawProgress = $"min(1,{rawProgress})";
+            }
+
+            var progress = EasingExpression(clip.Easing, rawProgress);
 
             zoomExpression =
                 $"min({F(zoomHigh)},max({F(zoomLow)},{F(scaledWidth)}/({F(widthStart)}+({F(widthEnd - widthStart)})*{progress})))";

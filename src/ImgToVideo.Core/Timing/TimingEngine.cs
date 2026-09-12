@@ -27,6 +27,7 @@ public static class TimingEngine
         var audioFrames = (long)Math.Round(audioDurationSeconds * fps);
 
         var sceneFrames = ComputeSceneFrameRanges(scenes, audioFrames, fps, issues);
+        ShiftPairedBoundaries(scenes, sceneFrames, durationOverrides, issues);
 
         var timedScenes = new List<TimedScene>();
         for (var i = 0; i < scenes.Count; i++)
@@ -74,6 +75,74 @@ public static class TimingEngine
         }
 
         return ranges;
+    }
+
+    private static void ShiftPairedBoundaries(
+        IReadOnlyList<ScenePlanInput> scenes,
+        List<(long Start, long End)> ranges,
+        IReadOnlyDictionary<string, long>? durationOverrides,
+        List<ValidationIssue> issues)
+    {
+        if (durationOverrides is null)
+        {
+            return;
+        }
+
+        // A scene whose every clip carries an absolute duration override can request a
+        // boundary shift: its override sum minus the narration window. Two adjacent
+        // scenes requesting exactly opposite shifts move the cut between them without
+        // disturbing narration coverage anywhere else.
+        var deltas = new long?[scenes.Count];
+        for (var i = 0; i < scenes.Count; i++)
+        {
+            var images = scenes[i].Images;
+            if (images.Count == 0)
+            {
+                continue;
+            }
+
+            long applied = 0;
+            var fullSet = true;
+            foreach (var image in images)
+            {
+                if (durationOverrides.TryGetValue(image.FilePath, out var frames) && frames > 0)
+                {
+                    applied += frames;
+                }
+                else
+                {
+                    fullSet = false;
+                    break;
+                }
+            }
+
+            deltas[i] = fullSet ? applied - (ranges[i].End - ranges[i].Start) : null;
+        }
+
+        for (var i = 0; i + 1 < scenes.Count; i++)
+        {
+            var delta = deltas[i];
+            var nextDelta = deltas[i + 1];
+            if (delta is null || nextDelta is null || delta == 0 || nextDelta != -delta)
+            {
+                continue;
+            }
+
+            var newEnd = ranges[i].End + delta.Value;
+            var newStart = ranges[i + 1].Start + delta.Value;
+            if (newEnd - ranges[i].Start < 1 || ranges[i + 1].End - newStart < 1)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "TIMING_OVERRIDE_IGNORED",
+                    $"Scenes {scenes[i].SceneId}/{scenes[i + 1].SceneId}: boundary shift leaves no room; ignoring it."));
+                continue;
+            }
+
+            ranges[i] = (ranges[i].Start, newEnd);
+            ranges[i + 1] = (newStart, ranges[i + 1].End);
+            deltas[i] = 0;
+            deltas[i + 1] = 0;
+        }
     }
 
     private static TimedScene SplitScene(

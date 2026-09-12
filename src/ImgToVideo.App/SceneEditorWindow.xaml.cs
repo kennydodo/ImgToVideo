@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -14,24 +15,56 @@ namespace ImgToVideo.App;
 
 public partial class SceneEditorWindow : Window
 {
-    public sealed class ClipRow
+    private const double MaxNudgeFrames = 120;
+
+    public sealed class ClipRow : INotifyPropertyChanged
     {
         public string FilePath { get; set; } = string.Empty;
         public string Display { get; set; } = string.Empty;
         public string Motion { get; set; } = "Auto";
         public string Easing { get; set; } = "Auto";
-        public string Duration { get; set; } = "0";
+
+        private string _duration = "0";
+        public string Duration
+        {
+            get => _duration;
+            set
+            {
+                if (_duration == value)
+                {
+                    return;
+                }
+
+                _duration = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Duration)));
+            }
+        }
+
         public bool Exclude { get; set; }
         public string Transition { get; set; } = "Auto";
         public long PlannedDuration { get; set; }
         public bool IsFirstClipOfVideo { get; set; }
+        public double Nudge { get; set; }
+        public bool CanNudge { get; set; } = true;
+
+        /// <summary>Manifest shot id; set for v2-planned rows.</summary>
+        public string? ShotId { get; set; }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
     }
+
+    private sealed record PreviewRenderOutcome(
+        string? PlayPath, bool MuxFailed, string? ErrorTail, string? Note = null);
+
+    private sealed record TransitionPreview(TransitionIn Transition, VideoClip Outgoing, ImageInfo OutgoingImage);
 
     private readonly Timeline _timeline;
     private readonly ProjectInventory _inventory;
     private readonly ProjectOptions _options;
     private readonly string _projectFolder;
     private readonly Dictionary<string, ObservableCollection<ClipRow>> _rowsByScene = new();
+    private ClipPreviewPlayerWindow? _floatingPlayer;
+    private bool _updatingNudge;
     private bool _saved;
 
     public bool Saved => _saved;
@@ -52,27 +85,37 @@ public partial class SceneEditorWindow : Window
 
     private void BuildRows()
     {
-        foreach (var scene in _timeline.Scenes)
+        for (var sceneIndex = 0; sceneIndex < _timeline.Scenes.Count; sceneIndex++)
         {
+            var scene = _timeline.Scenes[sceneIndex];
             var rows = new ObservableCollection<ClipRow>();
-            foreach (var clip in scene.Clips)
+            for (var clipIndex = 0; clipIndex < scene.Clips.Count; clipIndex++)
             {
-                var clipOverride = _inventory.Overrides.ForClip(clip.FilePath);
+                var clip = scene.Clips[clipIndex];
+                var clipOverride = clip.ShotId is null
+                    ? _inventory.Overrides.ForClip(clip.FilePath)
+                    : _inventory.Overrides.ForShot(clip.ShotId);
 
                 rows.Add(new ClipRow
                 {
                     FilePath = clip.FilePath,
-                    Display = Path.GetFileName(clip.FilePath),
+                    Display = clip.ShotId is null
+                        ? Path.GetFileName(clip.FilePath)
+                        : $"{clip.ShotId} · {Path.GetFileName(clip.FilePath)}",
                     Motion = clipOverride?.Motion is { } motion ? CodeOf(motion) : "Auto",
                     Easing = clipOverride?.Easing is { } easing ? NameOf(easing) : "Auto",
                     Duration = (clipOverride?.DurationFrames ?? clip.DurationFrames)
                         .ToString(CultureInfo.InvariantCulture),
                     PlannedDuration = clip.DurationFrames,
                     Exclude = clipOverride?.Exclude ?? false,
-                    Transition = _inventory.Overrides.CutFor(clip.FilePath) is { } cut
-                        ? TransitionCatalog.NameOf(cut) ?? "Auto"
+                    Transition = clip.ShotId is null
+                        ? _inventory.Overrides.CutFor(clip.FilePath) is { } cut
+                            ? TransitionCatalog.NameOf(cut) ?? "Auto"
+                            : "Auto"
                         : "Auto",
-                    IsFirstClipOfVideo = scene == _timeline.Scenes[0] && scene.Clips[0] == clip,
+                    IsFirstClipOfVideo = sceneIndex == 0 && clipIndex == 0,
+                    CanNudge = clipIndex < scene.Clips.Count - 1 || sceneIndex < _timeline.Scenes.Count - 1,
+                    ShotId = clip.ShotId,
                 });
             }
 
@@ -88,6 +131,258 @@ public partial class SceneEditorWindow : Window
 
     private ObservableCollection<ClipRow>? SelectedRows =>
         CmbScene.SelectedValue is string id ? _rowsByScene.GetValueOrDefault(id) : null;
+
+    private List<ClipRow> FlatRows() => _timeline.Scenes
+        .Where(s => _rowsByScene.ContainsKey(s.Id))
+        .SelectMany(s => _rowsByScene[s.Id])
+        .ToList();
+
+    private static bool TryParseFrames(string text, out long frames) =>
+        long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out frames);
+
+    private (VideoClip Clip, ImageInfo Image)? ResolveRow(ClipRow row)
+    {
+        var clip = row.ShotId is null
+            ? _timeline.Scenes
+                .SelectMany(s => s.Clips)
+                .FirstOrDefault(c =>
+                    string.Equals(c.FilePath, row.FilePath, StringComparison.OrdinalIgnoreCase))
+            : _timeline.Scenes
+                .SelectMany(s => s.Clips)
+                .FirstOrDefault(c => string.Equals(c.ShotId, row.ShotId, StringComparison.Ordinal));
+        var image = _inventory.AllImages.FirstOrDefault(i =>
+            string.Equals(i.FilePath, row.FilePath, StringComparison.OrdinalIgnoreCase));
+        return clip is not null && image is not null && image.Width > 0
+            ? (clip, image)
+            : null;
+    }
+
+    private VideoClip? TimelinePreviousClip(VideoClip clip)
+    {
+        VideoClip? previous = null;
+        foreach (var scene in _timeline.Scenes)
+        {
+            foreach (var candidate in scene.Clips)
+            {
+                if (ReferenceEquals(candidate, clip))
+                {
+                    return previous;
+                }
+
+                previous = candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private TransitionPreview? ResolveTransitionPreview(ClipRow row, VideoClip clip, long previewDurationFrames)
+    {
+        if (!_options.Transitions.Enabled || row.IsFirstClipOfVideo)
+        {
+            return null;
+        }
+
+        var previous = TimelinePreviousClip(clip);
+        if (previous is null)
+        {
+            return null;
+        }
+
+        var previousImage = _inventory.AllImages.FirstOrDefault(i =>
+            string.Equals(i.FilePath, previous.FilePath, StringComparison.OrdinalIgnoreCase));
+        if (previousImage is not { Width: > 0 })
+        {
+            return null;
+        }
+
+        var isSceneBoundary = !string.Equals(previous.SceneId, clip.SceneId, StringComparison.OrdinalIgnoreCase);
+        var kind = row.Transition != "Auto" && TransitionCatalog.TryFromName(row.Transition, out var overridden)
+            ? overridden
+            : isSceneBoundary
+                ? _options.Transitions.SceneBoundaryKind
+                : _options.Transitions.Kind;
+        var frames = (long)Math.Round(_options.Transitions.DurationSeconds * _options.Output.Fps);
+        var headTrim = PreviewRenderPlanFactory.HeadTrimFrames(frames, _options);
+        if (kind == TransitionKind.None || frames < 2 || previewDurationFrames - headTrim < 1)
+        {
+            return null;
+        }
+
+        return new TransitionPreview(
+            new TransitionIn { Kind = kind, DurationFrames = frames }, previous, previousImage);
+    }
+
+    private Timeline BuildPreviewTimeline(string sceneId, IReadOnlyList<VideoClip> clips) =>
+        new()
+        {
+            Fps = _options.Output.Fps,
+            Resolution = new Resolution(_options.Output.Width, _options.Output.Height),
+            Audio = new AudioTrack { FilePath = _inventory.AudioFilePath ?? string.Empty },
+            Scenes = [new Scene { Id = sceneId, Clips = [.. clips] }],
+        };
+
+    private static async Task<bool> TryPromoteAsync(string tempFile, string targetFile)
+    {
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            try
+            {
+                if (File.Exists(targetFile))
+                {
+                    File.Delete(targetFile);
+                }
+
+                File.Move(tempFile, targetFile);
+                return true;
+            }
+            catch (IOException)
+            {
+                if (attempt == 3)
+                {
+                    return false;
+                }
+
+                if (attempt == 2)
+                {
+                    // MediaElement releases its media file handle asynchronously; a
+                    // forced collection nudges any pending finalizer along.
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+
+                await Task.Delay(250);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (attempt == 3)
+                {
+                    return false;
+                }
+
+                if (attempt == 2)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+
+                await Task.Delay(250);
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<PreviewRenderOutcome> RenderMiniTimelineAsync(
+        Timeline mini, string outputDirectory, string outputPath, double muxOffsetSeconds,
+        IProgress<double>? progress)
+    {
+        Directory.CreateDirectory(outputDirectory);
+        var plan = PreviewRenderPlanFactory.Build(
+            mini, _inventory.AllImages, _options, outputDirectory, outputPath);
+        TryDelete(plan.RoughPath);
+
+        var muxTarget = Path.ChangeExtension(outputPath, ".muxing.mp4");
+        TryDelete(muxTarget);
+        if (_inventory.AudioFilePath is { } audio)
+        {
+            plan = plan with
+            {
+                MuxArguments = PreviewRenderPlanFactory.BuildClipPreviewMuxArguments(
+                    plan.RoughPath, audio, muxOffsetSeconds,
+                    plan.TotalFrames / _options.Output.Fps, muxTarget),
+            };
+        }
+        else
+        {
+            plan = plan with { MuxArguments = ["-hide_banner", "-version"] };
+        }
+
+        var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
+        var result = await service.RenderAsync(plan, maxParallelism: 2, progress);
+        if (result.Success)
+        {
+            if (await TryPromoteAsync(muxTarget, outputPath))
+            {
+                return new PreviewRenderOutcome(outputPath, false, null);
+            }
+
+            return new PreviewRenderOutcome(muxTarget, false, null,
+                $"{outputPath} was locked — playing the fresh copy from {muxTarget}.");
+        }
+
+        TryDelete(muxTarget);
+        var errors = string.Join(" | ", result.Errors);
+        if (File.Exists(plan.RoughPath))
+        {
+            return new PreviewRenderOutcome(
+                plan.RoughPath, errors.Contains("Audio mux failed", StringComparison.Ordinal), errors);
+        }
+
+        return new PreviewRenderOutcome(null, false, errors);
+    }
+
+    private async Task<PreviewRenderOutcome> RenderSingleClipPreviewAsync(
+        VideoClip previewClip, ImageInfo image, string videoPath, string renderPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(renderPath)!);
+        var runner = new FfmpegRunner(_options.Render.FfmpegPath);
+        var video = await runner.RunAsync(PreviewRenderPlanFactory.BuildClipPreviewArguments(
+            previewClip, image.Width, image.Height, _options, renderPath));
+        if (!video.Success)
+        {
+            return new PreviewRenderOutcome(null, false, video.ErrorTail);
+        }
+
+        var muxTarget = Path.ChangeExtension(renderPath, ".muxing.mp4");
+        TryDelete(muxTarget);
+        if (_inventory.AudioFilePath is { } audio)
+        {
+            var muxed = await runner.RunAsync(PreviewRenderPlanFactory.BuildClipPreviewMuxArguments(
+                renderPath, audio,
+                previewClip.StartFrame / _options.Output.Fps,
+                previewClip.DurationFrames / _options.Output.Fps,
+                muxTarget));
+            if (!muxed.Success)
+            {
+                return new PreviewRenderOutcome(renderPath, true, muxed.ErrorTail);
+            }
+
+            TryDelete(renderPath);
+            if (await TryPromoteAsync(muxTarget, videoPath))
+            {
+                return new PreviewRenderOutcome(videoPath, false, null);
+            }
+
+            return new PreviewRenderOutcome(muxTarget, false, null,
+                $"{videoPath} was locked — playing the fresh copy from {muxTarget}.");
+        }
+
+        if (await TryPromoteAsync(renderPath, videoPath))
+        {
+            return new PreviewRenderOutcome(videoPath, false, null);
+        }
+
+        return new PreviewRenderOutcome(renderPath, false, null,
+            $"{videoPath} was locked — playing the fresh copy from {renderPath}.");
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
     private void CmbScene_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -121,6 +416,53 @@ public partial class SceneEditorWindow : Window
         SelectedRows.Move(index, target);
     }
 
+    private void NudgeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_updatingNudge || (sender as Slider)?.Tag is not ClipRow row)
+        {
+            return;
+        }
+
+        var slider = (Slider)sender;
+        var flat = FlatRows();
+        var index = flat.IndexOf(row);
+        var next = index >= 0 && index < flat.Count - 1 ? flat[index + 1] : null;
+
+        if (!row.CanNudge || next is null ||
+            !TryParseFrames(row.Duration, out var duration) || duration < 1 ||
+            !TryParseFrames(next.Duration, out var nextDuration) || nextDuration < 1)
+        {
+            RestoreNudge(slider, row);
+            return;
+        }
+
+        var previous = row.Nudge;
+        var target = Math.Clamp(e.NewValue, -MaxNudgeFrames, MaxNudgeFrames);
+        var delta = (long)Math.Round(target - previous);
+        delta = Math.Max(delta, 1 - duration);
+        delta = Math.Min(delta, nextDuration - 1);
+
+        _updatingNudge = true;
+        slider.Value = previous + delta;
+        _updatingNudge = false;
+
+        if (delta == 0)
+        {
+            return;
+        }
+
+        row.Nudge = previous + delta;
+        row.Duration = (duration + delta).ToString(CultureInfo.InvariantCulture);
+        next.Duration = (nextDuration - delta).ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void RestoreNudge(Slider slider, ClipRow row)
+    {
+        _updatingNudge = true;
+        slider.Value = row.Nudge;
+        _updatingNudge = false;
+    }
+
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         var result = BuildOverrides();
@@ -141,16 +483,106 @@ public partial class SceneEditorWindow : Window
     private ProjectOverrides BuildOverrides()
     {
         var result = new ProjectOverrides();
-        var sceneLookup = _timeline.Scenes.ToDictionary(s => s.Id, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (sceneId, rows) in _rowsByScene)
+        // Walk scenes in timeline order so adjacent scenes can pair their boundary
+        // shifts (the timing engine accepts opposite full-set deltas across one cut).
+        var sceneData = new List<(Scene Scene, IReadOnlyList<ClipRow> Rows, long?[] Durations, bool AllParsed)>();
+        var deltas = new long?[_timeline.Scenes.Count];
+        for (var index = 0; index < _timeline.Scenes.Count; index++)
         {
-            var scene = sceneLookup.GetValueOrDefault(sceneId);
+            var scene = _timeline.Scenes[index];
+            if (!_rowsByScene.TryGetValue(scene.Id, out var rows))
+            {
+                deltas[index] = null;
+                sceneData.Add((scene, [], [], false));
+                continue;
+            }
+
+            var durations = rows
+                .Select(r => TryParseFrames(r.Duration, out var frames) && frames > 0 ? frames : (long?)null)
+                .ToArray();
+
+            long emittedTotal = 0;
+            var allParsed = true;
+            foreach (var frames in durations)
+            {
+                if (frames is { } value)
+                {
+                    emittedTotal += value;
+                }
+                else
+                {
+                    allParsed = false;
+                    break;
+                }
+            }
+
+            deltas[index] = allParsed ? emittedTotal - (scene.EndFrame - scene.StartFrame) : null;
+            sceneData.Add((scene, rows, durations, allParsed));
+        }
+
+        for (var index = 0; index + 1 < sceneData.Count; index++)
+        {
+            var delta = deltas[index];
+            var nextDelta = deltas[index + 1];
+            if (delta is null || nextDelta is null || delta == 0 || nextDelta != -delta)
+            {
+                continue;
+            }
+
+            deltas[index] = 0;
+            deltas[index + 1] = 0;
+        }
+
+        for (var index = 0; index < sceneData.Count; index++)
+        {
+            var (scene, rows, durations, allParsed) = sceneData[index];
+            var touched = rows.Any(r => r.Nudge != 0) ||
+                          rows.Where((r, i) => durations[i] is { } d && d != r.PlannedDuration).Any();
+            var fullSet = allParsed && deltas[index] == 0 && touched;
+
             for (var i = 0; i < rows.Count; i++)
             {
                 var row = rows[i];
                 var clipOverride = new ClipOverride { File = row.FilePath };
                 var changed = false;
+
+                if (row.ShotId is not null)
+                {
+                    // Manifest shots: duration/motion/easing/exclude overrides are
+                    // keyed by shot id; the manifest owns order, framing and cuts.
+                    clipOverride.Shot = row.ShotId;
+                    if (row.Exclude)
+                    {
+                        clipOverride.Exclude = true;
+                        changed = true;
+                    }
+
+                    if (row.Motion != "Auto" && MotionCodes.TryFromSuffix(row.Motion, out var shotMotion))
+                    {
+                        clipOverride.Motion = shotMotion;
+                        changed = true;
+                    }
+
+                    if (row.Easing != "Auto" && EasingModes.TryFromName(row.Easing, out var shotEasing))
+                    {
+                        clipOverride.Easing = shotEasing;
+                        changed = true;
+                    }
+
+                    if (durations[i] is { } shotDuration && shotDuration != row.PlannedDuration)
+                    {
+                        clipOverride.DurationFrames = shotDuration;
+                        changed = true;
+                    }
+
+                    if (changed)
+                    {
+                        result.Clips.Add(clipOverride);
+                    }
+
+                    continue;
+                }
 
                 if (row.Exclude)
                 {
@@ -170,15 +602,28 @@ public partial class SceneEditorWindow : Window
                     changed = true;
                 }
 
-                if (long.TryParse(row.Duration, NumberStyles.Integer, CultureInfo.InvariantCulture,
-                        out var duration) && duration > 0 && duration != row.PlannedDuration)
+                long? durationOverride;
+                if (fullSet)
                 {
-                    clipOverride.DurationFrames = duration;
+                    durationOverride = durations[i];
+                }
+                else if (durations[i] is { } parsed && parsed != row.PlannedDuration)
+                {
+                    durationOverride = parsed;
+                }
+                else
+                {
+                    durationOverride = null;
+                }
+
+                if (durationOverride is { } overrideFrames)
+                {
+                    clipOverride.DurationFrames = overrideFrames;
                     changed = true;
                 }
 
-                var naturalIndex = scene?.Clips.FindIndex(
-                    c => string.Equals(c.FilePath, row.FilePath, StringComparison.OrdinalIgnoreCase)) ?? -1;
+                var naturalIndex = scene.Clips.FindIndex(
+                    c => string.Equals(c.FilePath, row.FilePath, StringComparison.OrdinalIgnoreCase));
                 if (naturalIndex >= 0 && i != naturalIndex)
                 {
                     clipOverride.Order = i;
@@ -212,57 +657,77 @@ public partial class SceneEditorWindow : Window
             return;
         }
 
-        var scene = _timeline.Scenes.FirstOrDefault(s => s.Clips.Any(c =>
-            string.Equals(c.FilePath, row.FilePath, StringComparison.OrdinalIgnoreCase)));
-        var clip = scene?.Clips.FirstOrDefault(c =>
-            string.Equals(c.FilePath, row.FilePath, StringComparison.OrdinalIgnoreCase));
-        var image = _inventory.AllImages.FirstOrDefault(i =>
-            string.Equals(i.FilePath, row.FilePath, StringComparison.OrdinalIgnoreCase));
-
-        if (scene is null || clip is null || image is null || image.Width <= 0)
+        if (ResolveRow(row) is not { } resolved)
         {
             TxtEditorStatus.Text = "Cannot preview this clip (missing image or dimensions).";
             return;
         }
 
+        var (clip, image) = resolved;
         previewButton.IsEnabled = false;
         TxtEditorStatus.Text = "Rendering clip…";
+        ReleasePreviewFiles();
 
         try
         {
             var previewClip = BuildPreviewClip(row, clip, image.Width, image.Height);
             var clipsDirectory = Path.Combine(_projectFolder, "out", "clips");
-            Directory.CreateDirectory(clipsDirectory);
-            var videoPath = Path.Combine(
-                clipsDirectory, Path.GetFileNameWithoutExtension(clip.FilePath) + ".mp4");
+            var clipName = Path.GetFileNameWithoutExtension(clip.FilePath);
+            var videoPath = Path.Combine(clipsDirectory, clipName + ".mp4");
+            var partsDirectory = Path.Combine(clipsDirectory, "parts");
 
-            var runner = new FfmpegRunner(_options.Render.FfmpegPath);
-            var args = PreviewRenderPlanFactory.BuildClipPreviewArguments(
-                previewClip, image.Width, image.Height, _options, videoPath);
-            var video = await runner.RunAsync(args);
-            if (!video.Success)
+            PreviewRenderOutcome outcome;
+            var title = row.Display;
+            var transition = ResolveTransitionPreview(row, clip, previewClip.DurationFrames);
+            if (transition is { } transitionPreview)
             {
-                TxtEditorStatus.Text = "Preview failed: " + video.ErrorTail;
+                var tin = transitionPreview.Transition;
+                var tailTrim = PreviewRenderPlanFactory.TailTrimFrames(tin.DurationFrames, _options);
+                var headTrim = PreviewRenderPlanFactory.HeadTrimFrames(tin.DurationFrames, _options);
+                var shortened = new VideoClip
+                {
+                    FilePath = transitionPreview.Outgoing.FilePath,
+                    SceneId = transitionPreview.Outgoing.SceneId,
+                    StartFrame = 0,
+                    DurationFrames = tailTrim + tin.DurationFrames,
+                    Motion = transitionPreview.Outgoing.Motion,
+                    MotionSource = transitionPreview.Outgoing.MotionSource,
+                    ImageType = transitionPreview.Outgoing.ImageType,
+                    Easing = transitionPreview.Outgoing.Easing,
+                    StartViewport = transitionPreview.Outgoing.StartViewport,
+                    EndViewport = transitionPreview.Outgoing.EndViewport,
+                };
+                previewClip.Transition = tin;
+                var mini = BuildPreviewTimeline(clip.SceneId, [shortened, previewClip]);
+                var offset = Math.Max(0, clip.StartFrame - tailTrim) / _options.Output.Fps;
+                var progress = new Progress<double>(p =>
+                    TxtEditorStatus.Text = $"Rendering clip… {p * 100:F0}%");
+                outcome = await RenderMiniTimelineAsync(mini, partsDirectory, videoPath, offset, progress);
+                title = $"Transition into {row.Display}";
+            }
+            else
+            {
+                var renderPath = Path.Combine(partsDirectory, clipName + ".render.mp4");
+                outcome = await RenderSingleClipPreviewAsync(previewClip, image, videoPath, renderPath);
+            }
+
+            if (outcome.PlayPath is null)
+            {
+                TxtEditorStatus.Text = "Preview failed: " + outcome.ErrorTail;
                 return;
             }
 
-            if (_inventory.AudioFilePath is { } audio)
+            if (outcome.MuxFailed)
             {
-                var fps = _options.Output.Fps;
-                var muxArgs = PreviewRenderPlanFactory.BuildClipPreviewMuxArguments(
-                    videoPath, audio,
-                    clip.StartFrame / fps,
-                    previewClip.DurationFrames / fps,
-                    videoPath);
-                var muxed = await runner.RunAsync(muxArgs);
-                if (!muxed.Success)
-                {
-                    TxtEditorStatus.Text = "Preview rendered without audio (mux failed): " + muxed.ErrorTail;
-                }
+                MessageBox.Show(this,
+                    "The narration could not be mixed into this preview:\n\n" + outcome.ErrorTail +
+                    "\n\nThe video-only preview will open instead.",
+                    "Preview audio mux failed", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
 
-            TxtEditorStatus.Text = "Clip preview ready.";
-            new ClipPreviewPlayerWindow(row.Display, videoPath) { Owner = this }.ShowDialog();
+            TxtEditorStatus.Text = "Clip preview ready." +
+                (outcome.Note is null ? "" : " " + outcome.Note);
+            PlayerHost.Load(outcome.PlayPath, title);
         }
         catch (Exception ex)
         {
@@ -274,16 +739,200 @@ public partial class SceneEditorWindow : Window
         }
     }
 
+    private async void BtnPlayScene_Click(object sender, RoutedEventArgs e)
+    {
+        if (CmbScene.SelectedValue is not string sceneId || !_rowsByScene.TryGetValue(sceneId, out var rows))
+        {
+            return;
+        }
+
+        var previewClips = new List<VideoClip>();
+        var startFrame = 0L;
+        var transitionFrames = (long)Math.Round(_options.Transitions.DurationSeconds * _options.Output.Fps);
+        foreach (var row in rows)
+        {
+            if (row.Exclude)
+            {
+                continue;
+            }
+
+            if (ResolveRow(row) is not { } resolved)
+            {
+                TxtEditorStatus.Text = "Cannot preview this scene (missing image or dimensions).";
+                return;
+            }
+
+            var (clip, image) = resolved;
+            var previewClip = BuildPreviewClip(row, clip, image.Width, image.Height);
+            if (previewClips.Count > 0 && _options.Transitions.Enabled &&
+                transitionFrames >= 2 && previewClip.Transition is null)
+            {
+                var kind = row.Transition != "Auto" &&
+                           TransitionCatalog.TryFromName(row.Transition, out var overridden)
+                    ? overridden
+                    : _options.Transitions.Kind;
+                if (kind != TransitionKind.None)
+                {
+                    previewClip.Transition = new TransitionIn { Kind = kind, DurationFrames = transitionFrames };
+                }
+            }
+
+            if (previewClips.Count == 0)
+            {
+                startFrame = previewClip.StartFrame;
+            }
+
+            previewClips.Add(previewClip);
+        }
+
+        if (previewClips.Count == 0)
+        {
+            TxtEditorStatus.Text = "Every clip in this scene is excluded — nothing to play.";
+            return;
+        }
+
+        SetTransportBusy(true);
+        TxtEditorStatus.Text = $"Rendering scene {sceneId}…";
+        ReleasePreviewFiles();
+
+        try
+        {
+            var mini = BuildPreviewTimeline(sceneId, previewClips);
+            var clipsDirectory = Path.Combine(_projectFolder, "out", "clips");
+            var scenePath = Path.Combine(clipsDirectory, $"scene_{sceneId}.mp4");
+            var sceneDirectory = Path.Combine(clipsDirectory, $"scene_{sceneId}");
+            var progress = new Progress<double>(p =>
+                TxtEditorStatus.Text = $"Rendering scene {sceneId}… {p * 100:F0}%");
+            var outcome = await RenderMiniTimelineAsync(
+                mini, sceneDirectory, scenePath, startFrame / _options.Output.Fps, progress);
+
+            if (outcome.PlayPath is null)
+            {
+                TxtEditorStatus.Text = "Scene preview failed: " + outcome.ErrorTail;
+                return;
+            }
+
+            if (outcome.MuxFailed)
+            {
+                MessageBox.Show(this,
+                    "The narration could not be mixed into this preview:\n\n" + outcome.ErrorTail +
+                    "\n\nThe video-only preview will open instead.",
+                    "Preview audio mux failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            TxtEditorStatus.Text = $"Scene {sceneId} preview ready." +
+                (outcome.Note is null ? "" : " " + outcome.Note);
+            PlayerHost.Load(outcome.PlayPath, $"Scene {sceneId}");
+        }
+        catch (Exception ex)
+        {
+            TxtEditorStatus.Text = "Scene preview failed: " + ex.Message;
+        }
+        finally
+        {
+            SetTransportBusy(false);
+        }
+    }
+
+    private void SetTransportBusy(bool busy)
+    {
+        BtnPlayScene.IsEnabled = !busy;
+        BtnPlayAll.IsEnabled = !busy;
+        BtnUndock.IsEnabled = !busy;
+    }
+
+    private void BtnPlayAll_Click(object sender, RoutedEventArgs e)
+    {
+        var previewPath = Path.Combine(_projectFolder, "out", "preview.mp4");
+        if (!File.Exists(previewPath))
+        {
+            TxtEditorStatus.Text = "No full preview found — run BUILD PREVIEW first, then Play all.";
+            return;
+        }
+
+        ReleasePreviewFiles();
+        PlayerHost.Load(previewPath, "Full preview");
+        PlayerHost.ShowNote("Reflects saved overrides only — rebuild after editing overrides.");
+        TxtEditorStatus.Text = "Playing the full preview (saved overrides only).";
+    }
+
+    private void BtnUndock_Click(object sender, RoutedEventArgs e)
+    {
+        if (PlayerHost.CurrentPath is null)
+        {
+            TxtEditorStatus.Text = "Nothing to undock — render a clip preview or use Play scene / Play all first.";
+            return;
+        }
+
+        var path = PlayerHost.CurrentPath;
+        var title = PlayerHost.CurrentTitle;
+        PlayerHost.StopAndRelease();
+
+        var floating = new ClipPreviewPlayerWindow(title, path) { Owner = this };
+        floating.Closed += FloatingPlayer_Closed;
+        _floatingPlayer = floating;
+        floating.Show();
+        TxtEditorStatus.Text = "Preview undocked — close the floating window to re-dock it.";
+    }
+
+    private void FloatingPlayer_Closed(object? sender, EventArgs e)
+    {
+        _floatingPlayer = null;
+        if (sender is ClipPreviewPlayerWindow floating)
+        {
+            floating.Closed -= FloatingPlayer_Closed;
+            PlayerHost.Load(floating.ClipPath, floating.ClipTitle);
+        }
+    }
+
+    private void ReleasePreviewFiles()
+    {
+        if (_floatingPlayer is { } floating)
+        {
+            _floatingPlayer = null;
+            floating.Closed -= FloatingPlayer_Closed;
+            floating.Close();
+        }
+
+        PlayerHost.StopAndRelease();
+    }
+
     private VideoClip BuildPreviewClip(ClipRow row, VideoClip clip, int imageWidth, int imageHeight)
     {
+        if (clip.ShotId is not null)
+        {
+            // Manifest shot: framing, motion and motion duration come from the
+            // manifest-planned clip; only the (possibly nudged) duration applies.
+            var shotFrames = TryParseFrames(row.Duration, out var parsed) && parsed > 0
+                ? parsed
+                : clip.DurationFrames;
+            return new VideoClip
+            {
+                FilePath = clip.FilePath,
+                ShotId = clip.ShotId,
+                SceneId = clip.SceneId,
+                StartFrame = clip.StartFrame,
+                DurationFrames = shotFrames,
+                Motion = clip.Motion,
+                MotionSource = clip.MotionSource,
+                ImageType = clip.ImageType,
+                Easing = clip.Easing,
+                StartViewport = clip.StartViewport,
+                EndViewport = clip.EndViewport,
+                MotionDurationFrames = clip.MotionDurationFrames is { } cap
+                    ? Math.Min(cap, Math.Max(2, shotFrames - 1))
+                    : null,
+                Transition = clip.Transition,
+            };
+        }
+
         var motion = row.Motion != "Auto" && MotionCodes.TryFromSuffix(row.Motion, out var overridden)
             ? overridden
             : clip.Motion;
         var easing = row.Easing != "Auto" && EasingModes.TryFromName(row.Easing, out var eased)
             ? eased
             : clip.Easing;
-        var duration = long.TryParse(row.Duration, NumberStyles.Integer, CultureInfo.InvariantCulture,
-            out var frames) && frames > 0
+        var duration = TryParseFrames(row.Duration, out var frames) && frames > 0
             ? frames
             : clip.DurationFrames;
 

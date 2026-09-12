@@ -1,4 +1,5 @@
 using ImgToVideo.Core.Analysis;
+using ImgToVideo.Core.Manifest;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Motion;
 using ImgToVideo.Core.Options;
@@ -9,7 +10,8 @@ namespace ImgToVideo.Core.Planning;
 public sealed record PlanningResult(
     bool Success,
     Timeline? Timeline,
-    IReadOnlyList<ValidationIssue> Issues);
+    IReadOnlyList<ValidationIssue> Issues,
+    ManifestCoverage? Coverage = null);
 
 public static class EditPlanner
 {
@@ -26,6 +28,38 @@ public static class EditPlanner
         {
             issues.Add(new ValidationIssue(ValidationSeverity.Error, "PLANNER_NO_AUDIO", "No audio file; cannot build."));
             return new PlanningResult(false, null, issues);
+        }
+
+        if (inventory.Manifest is { } manifest)
+        {
+            if (!string.Equals(options.Planner, "v2", StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Info, "MANIFEST_IGNORED",
+                    "visual_manifest.json found but \"planner\" is \"v1\" — set \"planner\": \"v2\" in " +
+                    "imgtovideo.json to plan from the manifest."));
+            }
+            else
+            {
+                var manifestResult = ManifestPlanner.Plan(
+                    manifest,
+                    inventory.AllImages,
+                    options,
+                    (long)Math.Round(audioDurationSeconds * options.Output.Fps),
+                    inventory.Overrides);
+                issues.AddRange(manifestResult.Issues);
+                if (manifestResult.Timeline is null || ValidationIssue.HasErrors(issues))
+                {
+                    return new PlanningResult(false, null, issues);
+                }
+
+                if (!VerifyCoverage(manifestResult.Timeline, audioDurationSeconds, issues))
+                {
+                    return new PlanningResult(false, null, issues);
+                }
+
+                return new PlanningResult(true, manifestResult.Timeline, issues, manifestResult.Coverage);
+            }
         }
 
         var sceneInputs = BuildSceneInputs(inventory, audioDurationSeconds, options, issues);

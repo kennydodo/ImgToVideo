@@ -13,4 +13,7 @@ public sealed class MotionOptions
     public double PanMaxTravelPercent { get; set; } = 4.0;
     public int StaticEveryMinShots { get; set; } = 4;
     public int StaticEveryMaxShots { get; set; } = 6;
+
+    /// <summary>Milliseconds after which clip motion completes and the framing holds (0 = whole clip).</summary>
+    public long MotionDurationMs { get; set; } = 4500;
 }

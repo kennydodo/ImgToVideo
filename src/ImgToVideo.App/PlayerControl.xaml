@@ -1,0 +1,59 @@
+<UserControl x:Class="ImgToVideo.App.PlayerControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="{StaticResource BrushRecessed}"
+            BorderBrush="{StaticResource BrushBorderSubtle}"
+            BorderThickness="1" CornerRadius="4">
+        <Grid Margin="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="0,0,0,6">
+                <TextBlock x:Name="TxtTitle" Text="No preview loaded"
+                           Foreground="{StaticResource BrushTextPrimary}"
+                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="TxtSubtitle" Text=""
+                           Foreground="{StaticResource BrushTextTertiary}"
+                           FontSize="11" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+
+            <MediaElement Grid.Row="1" x:Name="Player"
+                          LoadedBehavior="Manual"
+                          UnloadedBehavior="Stop"
+                          MediaOpened="Player_MediaOpened"
+                          MediaFailed="Player_MediaFailed"
+                          MediaEnded="Player_MediaEnded"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          Stretch="Uniform"/>
+
+            <Grid Grid.Row="2" Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" x:Name="BtnRestart" Content="⟲ Restart"
+                        Style="{StaticResource SecondaryButton}" Padding="8,4"
+                        IsEnabled="False" Click="BtnRestart_Click"/>
+                <Button Grid.Column="1" x:Name="BtnPlayPause" Content="Play"
+                        Style="{StaticResource SecondaryButton}" Padding="8,4" Margin="8,0,10,0"
+                        IsEnabled="False" Click="BtnPlayPause_Click"/>
+                <Slider Grid.Column="2" x:Name="SldPosition"
+                        Minimum="0" Maximum="100" Value="0"
+                        IsEnabled="False" IsMoveToPointEnabled="True"
+                        VerticalAlignment="Center"
+                        Thumb.DragStarted="SldPosition_DragStarted"
+                        Thumb.DragCompleted="SldPosition_DragCompleted"
+                        ValueChanged="SldPosition_ValueChanged"/>
+                <TextBlock Grid.Column="3" x:Name="TxtTime" Text="0:00 / 0:00"
+                           Foreground="{StaticResource BrushTextSecondary}"
+                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

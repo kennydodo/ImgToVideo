@@ -13,6 +13,28 @@ public class ProjectOptionsTests
     }
 
     [Fact]
+    public void Empty_file_loads_defaults()
+    {
+        Assert.Equal("v2", OptionsJson.LoadFromJson("").Planner);
+        Assert.Equal("v2", OptionsJson.LoadFromJson("   \r\n").Planner);
+    }
+
+    [Fact]
+    public void Hand_written_file_without_schema_version_applies_its_fields()
+    {
+        var loaded = OptionsJson.LoadFromJson("""{ "planner": "v2" }""");
+
+        Assert.Equal("v2", loaded.Planner);
+    }
+
+    [Fact]
+    public void Wrong_schema_version_is_rejected()
+    {
+        Assert.Throws<InvalidDataException>(
+            () => OptionsJson.LoadFromJson("""{ "schema_version": 99 }"""));
+    }
+
+    [Fact]
     public void Invalid_timing_order_is_reported()
     {
         var options = new ProjectOptions();
@@ -87,10 +109,12 @@ public class ProjectOptionsTests
     }
 
     [Fact]
-    public void Missing_schema_version_is_rejected()
+    public void Missing_schema_version_is_treated_as_hand_written()
     {
-        Assert.Throws<InvalidDataException>(
-            () => OptionsJson.LoadFromJson("""{ "timing": {} }"""));
+        var loaded = OptionsJson.LoadFromJson("""{ "planner": "v2" }""");
+
+        Assert.Equal("v2", loaded.Planner);
+        Assert.Equal(ProjectOptions.CurrentSchemaVersion, loaded.SchemaVersion);
     }
 
     [Fact]

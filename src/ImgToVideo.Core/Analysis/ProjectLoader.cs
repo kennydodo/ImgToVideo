@@ -16,6 +16,7 @@ public sealed class ProjectInventory
     public List<SceneImageGroup> SceneGroups { get; init; } = new();
     public List<SubtitleBlock> Subtitles { get; init; } = new();
     public IReadOnlyList<SceneWindow>? SceneMapWindows { get; init; }
+    public ImgToVideo.Core.Manifest.VisualManifest? Manifest { get; init; }
     public ProjectOverrides Overrides { get; init; } = new();
     public List<ValidationIssue> Issues { get; init; } = new();
 }
@@ -33,7 +34,10 @@ public static class ProjectLoader
         var srt = FindSrt(projectFolder, issues);
         var subtitles = ParseSubtitles(srt, issues);
         var overrides = LoadOverrides(projectFolder, issues);
-        var images = LoadImages(projectFolder, options.Naming, overrides, issues);
+        var manifest = LoadManifestForPlanner(projectFolder, options, subtitles, issues);
+        var images = manifest is null
+            ? LoadImages(projectFolder, options.Naming, overrides, issues)
+            : LoadManifestImages(manifest, projectFolder, options.Naming, issues);
         var sceneMap = LoadSceneMap(projectFolder, issues);
 
         return new ProjectInventory
@@ -45,9 +49,213 @@ public static class ProjectLoader
             AllImages = images.All,
             SceneGroups = images.Groups,
             SceneMapWindows = sceneMap,
+            Manifest = manifest,
             Overrides = overrides,
             Issues = issues,
         };
+    }
+
+    private static ImgToVideo.Core.Manifest.VisualManifest? LoadVisualManifest(
+        string projectFolder, List<ValidationIssue> issues)
+    {
+        try
+        {
+            return ImgToVideo.Core.Manifest.VisualManifestLoader.Load(projectFolder);
+        }
+        catch (InvalidDataException e)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "MANIFEST_INVALID",
+                $"visual_manifest.json could not be loaded: {e.Message}"));
+            return null;
+        }
+        catch (JsonException e)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "MANIFEST_INVALID",
+                $"visual_manifest.json could not be loaded: {e.Message}"));
+            return null;
+        }
+        catch (IOException e)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "MANIFEST_INVALID",
+                $"visual_manifest.json could not be read: {e.Message}"));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Planner entry: shotlist.json (the LLM's one-pass plan: shots + image
+    /// prompts) wins when present — it is expanded into a full
+    /// visual_manifest.json from the SRT + images. Without a shotlist, a
+    /// hand-authored visual_manifest.json is used as-is.
+    /// </summary>
+    private static ImgToVideo.Core.Manifest.VisualManifest? LoadManifestForPlanner(
+        string projectFolder, ProjectOptions options,
+        List<SubtitleBlock> subtitles, List<ValidationIssue> issues)
+    {
+        var shotListPath = Path.Combine(projectFolder, ImgToVideo.Core.Manifest.ShotListParser.FileName);
+        if (!File.Exists(shotListPath))
+        {
+            return LoadVisualManifest(projectFolder, issues);
+        }
+
+        if (!string.Equals(options.Planner, "v1", StringComparison.OrdinalIgnoreCase))
+        {
+            ImgToVideo.Core.Manifest.ShotListDocument document;
+            try
+            {
+                document = ImgToVideo.Core.Manifest.ShotListParser.Parse(File.ReadAllText(shotListPath), issues);
+            }
+            catch (InvalidDataException e)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Error, "SHOTLIST_INVALID",
+                    $"shotlist.json could not be loaded: {e.Message}"));
+                return LoadVisualManifest(projectFolder, issues);
+            }
+            catch (JsonException e)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Error, "SHOTLIST_INVALID",
+                    $"shotlist.json could not be loaded: {e.Message}"));
+                return LoadVisualManifest(projectFolder, issues);
+            }
+            catch (IOException e)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Error, "SHOTLIST_INVALID",
+                    $"shotlist.json could not be read: {e.Message}"));
+                return LoadVisualManifest(projectFolder, issues);
+            }
+
+            var manifest = ImgToVideo.Core.Manifest.ShotListExpander.Expand(
+                document, subtitles, EnumerateImageFileNames(projectFolder, options.Naming),
+                options.Transitions, issues);
+            if (manifest is null)
+            {
+                return LoadVisualManifest(projectFolder, issues);
+            }
+
+            if (VisualManifestLoaderExists(projectFolder))
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Info, "SHOTLIST_PRECEDENCE",
+                    "shotlist.json takes precedence — visual_manifest.json was regenerated from it " +
+                    "(edit the shotlist, not the manifest)."));
+            }
+
+            try
+            {
+                ImgToVideo.Core.Manifest.VisualManifestLoader.Save(
+                    manifest, Path.Combine(projectFolder, ImgToVideo.Core.Manifest.VisualManifestLoader.FileName));
+            }
+            catch (IOException e)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "SHOTLIST_SAVE_FAILED",
+                    $"The expanded visual_manifest.json could not be written: {e.Message}"));
+            }
+
+            return manifest;
+        }
+
+        issues.Add(new ValidationIssue(
+            ValidationSeverity.Info, "SHOTLIST_IGNORED",
+            "shotlist.json found but \"planner\" is \"v1\" — set \"planner\": \"v2\" in " +
+            "imgtovideo.json to plan from the shot list."));
+        return LoadVisualManifest(projectFolder, issues);
+    }
+
+    private static bool VisualManifestLoaderExists(string projectFolder) =>
+        File.Exists(Path.Combine(projectFolder, ImgToVideo.Core.Manifest.VisualManifestLoader.FileName));
+
+    private static List<string> EnumerateImageFileNames(string projectFolder, NamingOptions naming)
+    {
+        var imagesDir = Path.Combine(projectFolder, "images");
+        if (!Directory.Exists(imagesDir))
+        {
+            return [];
+        }
+
+        var allowedExtensions = naming.ImageExtensions
+            .Select(e => e.StartsWith('.') ? e : "." + e)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return Directory.EnumerateFiles(imagesDir)
+            .Where(f => allowedExtensions.Contains(Path.GetExtension(f)))
+            .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance)
+            .Select(Path.GetFileName)
+            .Where(name => name is not null)
+            .Select(name => name!)
+            .ToList();
+    }
+
+    private static (List<ImageInfo> All, List<SceneImageGroup> Groups) LoadManifestImages(
+        ImgToVideo.Core.Manifest.VisualManifest manifest,
+        string projectFolder, NamingOptions naming, List<ValidationIssue> issues)
+    {
+        // Manifest projects carry their own naming (e.g. S01_B07_01.png); every
+        // allowed-extension file in images\ is loaded without the grammar gate.
+        var imagesDir = Path.Combine(projectFolder, "images");
+        if (!Directory.Exists(imagesDir))
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Error, "IMAGES_MISSING",
+                "No \"images\" folder found in the project folder."));
+            return ([], []);
+        }
+
+        var allowedExtensions = naming.ImageExtensions
+            .Select(e => e.StartsWith('.') ? e : "." + e)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var images = new List<ImageInfo>();
+        foreach (var file in Directory.EnumerateFiles(imagesDir)
+                     .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance))
+        {
+            if (!allowedExtensions.Contains(Path.GetExtension(file)))
+            {
+                continue;
+            }
+
+            if (!ImageDimensionsReader.TryRead(file, out var width, out var height))
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "IMAGE_UNREADABLE",
+                    $"\"{Path.GetFileName(file)}\" has unreadable image dimensions."));
+            }
+
+            var stem = Path.GetFileNameWithoutExtension(file);
+            images.Add(new ImageInfo(
+                file,
+                new ParsedImageName(stem, ParseSceneNumber(stem), 0, null, false),
+                width,
+                height));
+        }
+
+        var groups = (manifest.Assets ?? [])
+            .Where(a => a.SceneId is not null)
+            .GroupBy(a => a.SceneId!, StringComparer.OrdinalIgnoreCase)
+            .Select((g, index) => new SceneImageGroup(
+                ParseSceneNumber(g.Key) > 0 ? ParseSceneNumber(g.Key) : index + 1,
+                g.Key,
+                images
+                    .Where(i => g.Any(a => string.Equals(
+                        Path.GetFileName(i.FilePath), a.File, StringComparison.OrdinalIgnoreCase)))
+                    .ToList()))
+            .OrderBy(g => g.SceneNumber)
+            .ToList();
+
+        return (images, groups);
+    }
+
+    private static int ParseSceneNumber(string stem)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(stem, @"^S(\d+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? int.Parse(match.Groups[1].Value) : 0;
     }
 
     private static ProjectOverrides LoadOverrides(string projectFolder, List<ValidationIssue> issues)

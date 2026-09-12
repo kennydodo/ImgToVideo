@@ -5,6 +5,7 @@ using ImgToVideo.Core.Analysis;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
 using ImgToVideo.Core.Planning;
+using ImgToVideo.Core.Reporting;
 using ImgToVideo.Core.Serialization;
 using ImgToVideo.Ffmpeg;
 using ImgToVideo.Premiere;
@@ -67,7 +68,22 @@ public partial class MainWindow : Window
         {
             SetBusy(true, "Analyzing…");
 
-            _options = OptionsJson.LoadOrDefault(Path.Combine(_projectFolder, "imgtovideo.json"));
+            var optionsPath = Path.Combine(_projectFolder, "imgtovideo.json");
+            if (!File.Exists(optionsPath))
+            {
+                // First analyze in this folder: write the default options so there
+                // is a file to edit (planner, fps, …) without hand-creating JSON.
+                try
+                {
+                    OptionsJson.Save(new ProjectOptions(), optionsPath);
+                }
+                catch (IOException)
+                {
+                    // Non-fatal — defaults still apply for this run.
+                }
+            }
+
+            _options = OptionsJson.LoadOrDefault(optionsPath);
             SyncOptionControls();
             _planned = null;
 
@@ -154,7 +170,8 @@ public partial class MainWindow : Window
             _renderCts = new CancellationTokenSource();
             var progress = new Progress<double>(p => PbRender.Value = p * 100);
             var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
-            var result = await service.RenderAsync(plan, maxParallelism: 2, progress, _renderCts.Token);
+            var result = await service.RenderAsync(
+                plan, maxParallelism: 2, progress, _renderCts.Token, reuseUnchangedSegments: true);
 
             ShowStatus(result.Success
                 ? $"Preview ready: {previewPath}"
@@ -173,6 +190,80 @@ public partial class MainWindow : Window
         {
             SetBusy(false, null);
         }
+    }
+
+    private async void BtnFinal_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inventory is null || !IsProjectFolderReady())
+        {
+            return;
+        }
+
+        try
+        {
+            SetBusy(true, "Rendering final…");
+            if (!await PlanIfNeededAsync())
+            {
+                return;
+            }
+
+            var finalDirectory = Path.Combine(_projectFolder, "out", "final");
+            var renderDirectory = Path.Combine(finalDirectory, "render");
+            var finalPath = Path.Combine(finalDirectory, "final.mp4");
+
+            var plan = PreviewRenderPlanFactory.Build(
+                _planned!.Timeline!, _inventory.AllImages, FinalRenderOptions(_options),
+                renderDirectory, finalPath);
+
+            _renderCts = new CancellationTokenSource();
+            var progress = new Progress<double>(p => PbRender.Value = p * 100);
+            var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
+            var result = await service.RenderAsync(
+                plan, maxParallelism: 2, progress, _renderCts.Token, reuseUnchangedSegments: true);
+
+            if (!result.Success)
+            {
+                ShowStatus("Final render failed: " + string.Join(" | ", result.Errors), StatusKind.Error);
+                return;
+            }
+
+            var captionsPath = Path.Combine(finalDirectory, "captions.srt");
+            var captionsSource = _inventory.SrtFilePath;
+            var hasCaptions = captionsSource is not null;
+            if (captionsSource is not null)
+            {
+                File.Copy(captionsSource, captionsPath, overwrite: true);
+            }
+
+            ShowStatus(
+                "Final render ready: " + finalPath + (hasCaptions ? " + captions.srt" : "") +
+                " — drop both into CapCut (CapCut tier 1).",
+                StatusKind.Success);
+        }
+        catch (OperationCanceledException)
+        {
+            ShowStatus("Render cancelled.");
+        }
+        catch (Exception ex)
+        {
+            ShowStatus("Final render failed: " + ex.Message, StatusKind.Error);
+        }
+        finally
+        {
+            SetBusy(false, null);
+        }
+    }
+
+    private static ProjectOptions FinalRenderOptions(ProjectOptions options)
+    {
+        var clone = System.Text.Json.JsonSerializer.Deserialize<ProjectOptions>(
+            System.Text.Json.JsonSerializer.Serialize(options, OptionsJson.JsonOptions),
+            OptionsJson.JsonOptions)!;
+        clone.Render.PreviewWidth = clone.Output.Width;
+        clone.Render.PreviewHeight = clone.Output.Height;
+        clone.Render.PreviewPreset = clone.Render.FinalPreset;
+        clone.Render.PreviewCrf = clone.Render.FinalCrf;
+        return clone;
     }
 
     private async void BtnExport_Click(object sender, RoutedEventArgs e)
@@ -270,7 +361,12 @@ public partial class MainWindow : Window
 
         var outDir = Path.Combine(_projectFolder, "out");
         Directory.CreateDirectory(outDir);
-        TimelineJson.Save(_planned.Timeline!, Path.Combine(outDir, "timeline.json"));
+        TimelineJson.Save(_planned!.Timeline!, Path.Combine(outDir, "timeline.json"));
+        BuildReportWriter.Save(
+            BuildReportFactory.Create(
+                Path.GetFileName(_projectFolder), _planned.Timeline!, _options, _planned.Issues,
+                _planned.Coverage),
+            Path.Combine(outDir, "build-report.json"));
         return true;
     }
 
@@ -338,6 +434,27 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BtnCopyDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        var text = string.Join(
+            Environment.NewLine,
+            LstIssues.Items.OfType<DiagnosticsRow>().Select(row => row.Text));
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+            TxtStatus.Text = "Diagnostics copied to the clipboard.";
+        }
+        catch (Exception)
+        {
+            TxtStatus.Text = "Could not access the clipboard; select and copy the text manually.";
+        }
+    }
+
     private void SyncOptionControls()
     {
         ChkAutoMotion.IsChecked = _options.Motion.AutoMotionEnabled;
@@ -371,6 +488,7 @@ public partial class MainWindow : Window
         if (busy)
         {
             BtnBuild.IsEnabled = false;
+            BtnFinal.IsEnabled = false;
             BtnExport.IsEnabled = false;
             PbRender.Value = 0;
         }
@@ -380,6 +498,7 @@ public partial class MainWindow : Window
                 || ValidationIssue.HasErrors(_inventory.Issues)
                 || _planned is { Success: false };
             BtnBuild.IsEnabled = !blocked;
+            BtnFinal.IsEnabled = !blocked;
             BtnExport.IsEnabled = !blocked;
             PbRender.Value = 0;
         }

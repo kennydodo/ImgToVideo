@@ -16,6 +16,10 @@ public sealed class ProjectOptions
     public RenderOptions Render { get; set; } = new();
     public SceneInferenceOptions SceneInference { get; set; } = new();
 
+    /// <summary>"v1" = scene-inference planner, "v2" = visual_manifest.json shots.
+    /// v2 is the default; projects without a manifest still plan via v1 inference.</summary>
+    public string Planner { get; set; } = "v2";
+
     public List<string> Validate()
     {
         var errors = new List<string>();
@@ -109,6 +113,22 @@ public sealed class ProjectOptions
         if (r.PreviewCrf < 0 || r.PreviewCrf > 51)
         {
             errors.Add("Preview CRF must be between 0 and 51.");
+        }
+
+        if (r.FinalCrf < 0 || r.FinalCrf > 51)
+        {
+            errors.Add("Final CRF must be between 0 and 51.");
+        }
+
+        if (Planner is not ("v1" or "v2"))
+        {
+            errors.Add("Planner must be \"v1\" or \"v2\".");
+        }
+
+        if (r.Encoder is not ("auto" or "libx264" or "cpu" or "h264_nvenc" or "nvenc" or
+            "h264_amf" or "amf" or "h264_qsv" or "qsv"))
+        {
+            errors.Add("Encoder must be auto, libx264, h264_nvenc, h264_amf or h264_qsv.");
         }
 
         return errors;

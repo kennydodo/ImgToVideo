@@ -16,9 +16,13 @@ See [docs/generation-spec.md](docs/generation-spec.md) for the image generation 
 - Ffmpeg: preview render plan (supersampled zoompan, crossfade joins), runner with
   progress/cancel, ffprobe audio duration
 - Premiere: FCP7 XML exporter with motion keyframes + cuts-only fallback
-- WPF shell: analyze/build/export UI, diagnostics panel, full settings editor, and a scene editor
+- WPF shell: analyze/build/export UI, diagnostics panel (with COPY), full settings editor, and a scene editor
   (per-clip motion/easing/duration/exclude/order + per-cut transitions + single-clip preview)
-  persisted to `overrides.json` — 161 unit tests
+  persisted to `overrides.json`
+- LLM workflow: the LLM plans from the SRT in one pass — `shotlist.json`
+  (image prompts + which filename covers which cues); the batch image app
+  generates to those exact names; ANALYZE expands it into the manifest and
+  the diagnostics COPY button feeds validation back to the LLM — 201 unit tests
 - Transitions: 14 xfade modes, within-scene vs between-scene kinds, centered or late alignment;
   motion easing (linear/ease-in/ease-out/ease-in-out), globally or per clip
 - Naming v2 (`S##_##_TYPE_MOTION.png`) supported: image type codes (SCN/CU/INF/CMP/PROC/HYB/OVR),

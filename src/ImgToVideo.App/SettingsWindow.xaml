@@ -17,6 +17,17 @@
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel>
+                <GroupBox Header="Planning" Padding="8" Margin="0,0,0,8">
+                    <StackPanel>
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Planner" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="CmbPlanner" Margin="0,2,12,2"/>
+                        </UniformGrid>
+                        <TextBlock Text="v1 = automatic scene inference from the images. v2 = visual_manifest.json / shotlist.json (the LLM edit list) drives the edit."
+                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
                 <GroupBox Header="Image durations (seconds)" Padding="8" Margin="0,0,0,8">
                     <UniformGrid Columns="2">
                         <TextBlock Text="Minimum" VerticalAlignment="Center"/>
@@ -123,6 +134,12 @@
                         <TextBox x:Name="TxtPreviewPreset" Padding="3,2" Margin="0,2,12,2"/>
                         <TextBlock Text="Preview CRF" VerticalAlignment="Center"/>
                         <TextBox x:Name="TxtPreviewCrf" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Final preset" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtFinalPreset" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Final CRF" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtFinalCrf" Padding="3,2" Margin="0,2,12,2"/>
+                        <TextBlock Text="Encoder (auto/cpu/h264_nvenc/h264_amf/h264_qsv)" VerticalAlignment="Center"/>
+                        <TextBox x:Name="TxtEncoder" Padding="3,2" Margin="0,2,12,2"/>
                         <TextBlock Text="ffmpeg path" VerticalAlignment="Center"/>
                         <TextBox x:Name="TxtFfmpegPath" Padding="3,2" Margin="0,2,12,2"/>
                         <TextBlock Text="ffprobe path" VerticalAlignment="Center"/>

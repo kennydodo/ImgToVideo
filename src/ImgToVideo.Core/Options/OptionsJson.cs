@@ -26,11 +26,28 @@ public static class OptionsJson
 
     public static ProjectOptions LoadFromJson(string json)
     {
-        using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("schema_version", out var versionElement) ||
-            versionElement.ValueKind != JsonValueKind.Number)
+        if (string.IsNullOrWhiteSpace(json))
         {
-            throw new InvalidDataException("imgtovideo.json is missing schema_version.");
+            // Empty file (e.g. created but not saved yet) — use defaults.
+            return new ProjectOptions();
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException("imgtovideo.json must contain a JSON object.");
+        }
+
+        if (!doc.RootElement.TryGetProperty("schema_version", out var versionElement))
+        {
+            // Hand-written file without a version stamp: apply whatever fields
+            // it sets on top of the defaults.
+            return JsonSerializer.Deserialize<ProjectOptions>(json, JsonOptions) ?? new ProjectOptions();
+        }
+
+        if (versionElement.ValueKind != JsonValueKind.Number)
+        {
+            throw new InvalidDataException("imgtovideo.json has a non-numeric schema_version.");
         }
 
         var version = versionElement.GetInt32();
