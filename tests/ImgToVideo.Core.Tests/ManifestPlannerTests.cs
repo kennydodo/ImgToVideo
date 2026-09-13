@@ -124,19 +124,38 @@ public class ManifestPlannerTests
     }
 
     [Fact]
+    public void Zoom_without_explicit_scales_uses_motion_settings()
+    {
+        // Settings -> Motion -> push-in percents drive the zoom range when the
+        // shotlist does not provide start_scale/end_scale.
+        var manifest = SampleManifest();
+        var shots = manifest.Timeline.ToList();
+        shots[0] = shots[0] with { Motion = new VisualMotion("ZI", null, null, null) };
+        var (timeline, _, _) = Plan(manifest with { Timeline = shots });
+        var sh1 = timeline.Scenes[0].Clips[0];
+
+        // Close framing = 70% band (756 px of 1080); push-in defaults 100% -> 106%.
+        Assert.Equal(1080 * 0.70, sh1.StartViewport.Height, 1);
+        Assert.Equal(1080 * 0.70 / 1.06, sh1.EndViewport.Height, 1);
+    }
+
+    [Fact]
     public void Applies_transitions_from_previous_shot()
     {
         // transition_out on shot N drives the join between N and N+1; a non-CUT
         // transition_out on the LAST shot has no "next" join and is ignored.
+        // Joins without an explicit transition fall back to the project's
+        // transition settings (within-scene kind for same-scene joins).
         var manifest = SampleManifest();
         var shots = manifest.Timeline.ToList();
         shots[2] = shots[2] with { TransitionOut = new VisualTransition("CROSSFADE", 180) };
         var (timeline, _, _) = Plan(manifest with { Timeline = shots });
         var clips = timeline.Scenes[0].Clips;
 
-        Assert.Null(clips[0].Transition);
-        Assert.Null(clips[1].Transition); // SH001 CUT -> no transition
-        Assert.Null(clips[2].Transition); // SH002 CUT
+        Assert.Null(clips[0].Transition); // first clip: no incoming join
+        Assert.Equal(TransitionKind.Crossfade, clips[1].Transition!.Kind); // settings fallback
+        Assert.Equal(15, clips[1].Transition!.DurationFrames); // 0.5 s @ 30 fps
+        Assert.Equal(TransitionKind.Crossfade, clips[2].Transition!.Kind); // settings fallback
         Assert.NotNull(clips[3].Transition); // SH003 CROSSFADE 180ms -> 5-6 frames
         Assert.Equal(TransitionKind.Crossfade, clips[3].Transition!.Kind);
         Assert.Equal(5, clips[3].Transition.DurationFrames); // 180ms @ 30fps = 5.4 -> 5

@@ -194,7 +194,7 @@ public static class ManifestPlanner
         }
 
         // Transitions: shot N's transition_out becomes the join into shot N+1.
-        ApplyTransitions(clips, planned.Select(p => p.Shot).ToList(), fps);
+        ApplyTransitions(clips, planned.Select(p => p.Shot).ToList(), fps, options);
 
         // Per-shot duration overrides (editor nudges), keyed by shot id.
         var overrideApplied = false;
@@ -342,34 +342,62 @@ public static class ManifestPlanner
 
     private static void ApplyTransitions(
         List<(VideoClip Clip, VisualAsset Asset)> clips,
-        IReadOnlyList<VisualShot> shots, double fps)
+        IReadOnlyList<VisualShot> shots, double fps, ProjectOptions options)
     {
         // The outgoing shot's transition_out drives the join into the next shot; the
-        // last shot's transition_out is ignored.
+        // last shot's transition_out is ignored. Joins without an explicit transition
+        // fall back to the project's transition settings — the between-scenes kind
+        // when the join crosses a scene boundary, otherwise the within-scenes kind.
         for (var i = 0; i + 1 < clips.Count; i++)
         {
             var transition = shots[i].TransitionOut;
             var type = (transition?.Type ?? "CUT").ToUpperInvariant();
             var frames = (long)Math.Round((transition?.DurationMs ?? 0) * fps / 1000.0);
-            clips[i + 1].Clip.Transition = transition switch
+
+            TransitionIn? incoming;
+            if (transition is not null && type != "CUT")
             {
-                _ when type == "CROSSFADE" && frames >= 2 => new TransitionIn
+                incoming = transition switch
                 {
-                    Kind = TransitionKind.Crossfade,
-                    DurationFrames = frames,
-                },
-                _ when type == "DIP" && frames >= 2 => new TransitionIn
-                {
-                    Kind = TransitionKind.FadeBlack,
-                    DurationFrames = frames,
-                },
-                _ when type == "DIP_WHITE" && frames >= 2 => new TransitionIn
-                {
-                    Kind = TransitionKind.FadeWhite,
-                    DurationFrames = frames,
-                },
-                _ => null,
-            };
+                    _ when type == "CROSSFADE" && frames >= 2 => new TransitionIn
+                    {
+                        Kind = TransitionKind.Crossfade,
+                        DurationFrames = frames,
+                    },
+                    _ when type == "DIP" && frames >= 2 => new TransitionIn
+                    {
+                        Kind = TransitionKind.FadeBlack,
+                        DurationFrames = frames,
+                    },
+                    _ when type == "DIP_WHITE" && frames >= 2 => new TransitionIn
+                    {
+                        Kind = TransitionKind.FadeWhite,
+                        DurationFrames = frames,
+                    },
+                    _ => null,
+                };
+            }
+            else if (options.Transitions.Enabled)
+            {
+                var isSceneBoundary = !string.Equals(
+                    clips[i].Clip.SceneId, clips[i + 1].Clip.SceneId, StringComparison.OrdinalIgnoreCase);
+                var settingsFrames = (long)Math.Round(options.Transitions.DurationSeconds * fps);
+                incoming = settingsFrames >= 2
+                    ? new TransitionIn
+                    {
+                        Kind = isSceneBoundary
+                            ? options.Transitions.SceneBoundaryKind
+                            : options.Transitions.Kind,
+                        DurationFrames = settingsFrames,
+                    }
+                    : null;
+            }
+            else
+            {
+                incoming = null;
+            }
+
+            clips[i + 1].Clip.Transition = incoming;
         }
     }
 
@@ -415,7 +443,7 @@ public static class ManifestPlanner
         }
 
         var baseRect = ResolveBaseRect(shot, asset, image, options, issues);
-        var (s0, s1) = ResolveScales(shot, motion);
+        var (s0, s1) = ResolveScales(shot, motion, options.Motion);
         return (ScaleRect(baseRect, s0, image), ScaleRect(baseRect, s1, image));
     }
 
@@ -490,14 +518,21 @@ public static class ManifestPlanner
     private static Rect CenteredBand(double width, double height, double fraction) =>
         new(0, (height - height * fraction) / 2, width, height * fraction);
 
-    private static (double Start, double End) ResolveScales(VisualShot shot, MotionType motion)
+    private static (double Start, double End) ResolveScales(
+        VisualShot shot, MotionType motion, MotionOptions motionOptions)
     {
+        // Explicit shotlist scales win; otherwise the project's zoom percent
+        // settings (Settings -> Motion) drive the zoom range.
         var startScale = shot.Motion?.StartScale;
         var endScale = shot.Motion?.EndScale;
         return motion switch
         {
-            MotionType.ZoomIn => (startScale ?? 1.0, endScale ?? 1.10),
-            MotionType.ZoomOut => (startScale ?? 1.10, endScale ?? 1.02),
+            MotionType.ZoomIn => (
+                startScale ?? motionOptions.PushInStartPercent / 100.0,
+                endScale ?? motionOptions.PushInEndPercent / 100.0),
+            MotionType.ZoomOut => (
+                startScale ?? motionOptions.ZoomOutStartPercent / 100.0,
+                endScale ?? motionOptions.ZoomOutEndPercent / 100.0),
             _ => (startScale ?? 1.0, endScale ?? startScale ?? 1.0),
         };
     }
