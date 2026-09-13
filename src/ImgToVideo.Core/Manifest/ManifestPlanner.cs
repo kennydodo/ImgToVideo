@@ -188,13 +188,13 @@ public static class ManifestPlanner
                 duration = Math.Max(1, audioFrames - start);
             }
 
-            var clip = BuildClip(shot, asset, image, start, duration, fps, options, issues);
+            var clip = BuildClip(shot, asset, image, start, duration, fps, options, overrides, issues);
             clips.Add((clip, asset));
             cursor = start + duration;
         }
 
         // Transitions: shot N's transition_out becomes the join into shot N+1.
-        ApplyTransitions(clips, planned.Select(p => p.Shot).ToList(), fps, options);
+        ApplyTransitions(clips, planned.Select(p => p.Shot).ToList(), fps, options, overrides);
 
         // Per-shot duration overrides (editor nudges), keyed by shot id.
         var overrideApplied = false;
@@ -283,8 +283,9 @@ public static class ManifestPlanner
     private static VideoClip BuildClip(
         VisualShot shot, VisualAsset asset, ImageInfo image,
         long start, long duration, double fps, ProjectOptions options,
-        List<ValidationIssue> issues)
+        ProjectOverrides overrides, List<ValidationIssue> issues)
     {
+        var shotOverride = overrides.ForShot(shot.ShotId!);
         var motionText = shot.Motion?.Type ?? "STATIC";
         if (!TryParseMotion(motionText, out var motion))
         {
@@ -295,10 +296,18 @@ public static class ManifestPlanner
             motionText = "STATIC";
         }
 
+        // Scene Editor overrides win over the shotlist: the user deliberately
+        // changed the motion/easing for this shot.
+        if (shotOverride?.Motion is { } overrideMotion)
+        {
+            motion = overrideMotion;
+            motionText = overrideMotion.ToString().ToUpperInvariant();
+        }
+
         var safeMotion = (asset.SafeMotion ?? [])
             .Select(s => s.ToUpperInvariant())
             .ToHashSet();
-        if (safeMotion.Count > 0 && motion != MotionType.Static &&
+        if (shotOverride?.Motion is null && safeMotion.Count > 0 && motion != MotionType.Static &&
             !safeMotion.Contains(motionText.ToUpperInvariant()))
         {
             issues.Add(new ValidationIssue(
@@ -333,7 +342,7 @@ public static class ManifestPlanner
             ImageType = AssetTypeMap.TryGetValue(asset.Type ?? "", out var imageType)
                 ? imageType
                 : null,
-            Easing = options.Motion.Easing,
+            Easing = shotOverride?.Easing ?? options.Motion.Easing,
             StartViewport = startViewport,
             EndViewport = endViewport,
             MotionDurationFrames = motionDurationFrames,
@@ -342,22 +351,33 @@ public static class ManifestPlanner
 
     private static void ApplyTransitions(
         List<(VideoClip Clip, VisualAsset Asset)> clips,
-        IReadOnlyList<VisualShot> shots, double fps, ProjectOptions options)
+        IReadOnlyList<VisualShot> shots, double fps, ProjectOptions options,
+        ProjectOverrides overrides)
     {
         // The outgoing shot's transition_out drives the join into the next shot; the
         // last shot's transition_out is ignored. Joins without an explicit transition
         // fall back to the project's transition settings — the between-scenes kind
         // when the join crosses a scene boundary, otherwise the within-scenes kind.
+        // A Scene Editor cut override on the incoming clip wins over both.
         for (var i = 0; i + 1 < clips.Count; i++)
         {
+            var incoming = clips[i + 1].Clip;
             var transition = shots[i].TransitionOut;
             var type = (transition?.Type ?? "CUT").ToUpperInvariant();
             var frames = (long)Math.Round((transition?.DurationMs ?? 0) * fps / 1000.0);
 
-            TransitionIn? incoming;
-            if (transition is not null && type != "CUT")
+            TransitionIn? incomingTransition;
+            var editorCut = overrides.CutFor(incoming.FilePath);
+            if (editorCut is { } forced)
             {
-                incoming = transition switch
+                var editorFrames = (long)Math.Round(options.Transitions.DurationSeconds * fps);
+                incomingTransition = forced == TransitionKind.None || editorFrames < 2
+                    ? null
+                    : new TransitionIn { Kind = forced, DurationFrames = editorFrames };
+            }
+            else if (transition is not null && type != "CUT")
+            {
+                incomingTransition = transition switch
                 {
                     _ when type == "CROSSFADE" && frames >= 2 => new TransitionIn
                     {
@@ -380,9 +400,9 @@ public static class ManifestPlanner
             else if (options.Transitions.Enabled)
             {
                 var isSceneBoundary = !string.Equals(
-                    clips[i].Clip.SceneId, clips[i + 1].Clip.SceneId, StringComparison.OrdinalIgnoreCase);
+                    clips[i].Clip.SceneId, incoming.SceneId, StringComparison.OrdinalIgnoreCase);
                 var settingsFrames = (long)Math.Round(options.Transitions.DurationSeconds * fps);
-                incoming = settingsFrames >= 2
+                incomingTransition = settingsFrames >= 2
                     ? new TransitionIn
                     {
                         Kind = isSceneBoundary
@@ -394,10 +414,10 @@ public static class ManifestPlanner
             }
             else
             {
-                incoming = null;
+                incomingTransition = null;
             }
 
-            clips[i + 1].Clip.Transition = incoming;
+            incoming.Transition = incomingTransition;
         }
     }
 

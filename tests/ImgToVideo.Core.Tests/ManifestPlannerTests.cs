@@ -124,6 +124,37 @@ public class ManifestPlannerTests
     }
 
     [Fact]
+    public void Scene_editor_overrides_win_over_shotlist_and_settings()
+    {
+        var manifest = SampleManifest();
+        var overrides = new ProjectOverrides();
+        overrides.Clips.Add(new ClipOverride
+        {
+            File = "images/S01_B01_01.png",
+            Shot = "SH001",
+            Motion = MotionType.PanRight,
+            Easing = EasingMode.EaseIn,
+        });
+        overrides.Cuts.Add(new CutOverride
+        {
+            BeforeFile = Path.Combine("images", "S01_B03_01_INFO.png"),
+            Transition = TransitionKind.FadeBlack,
+        });
+
+        var (timeline, _, _) = Plan(manifest, overrides: overrides);
+        var clips = timeline.Scenes[0].Clips;
+
+        // SH001 shotlist says ZI; the editor override says PanRight and wins,
+        // along with the editor easing over the project easing.
+        Assert.Equal(MotionType.PanRight, clips[0].Motion);
+        Assert.Equal(EasingMode.EaseIn, clips[0].Easing);
+
+        // SH003 declares transition_out CROSSFADE, but the editor cut override
+        // on the incoming clip wins.
+        Assert.Equal(TransitionKind.FadeBlack, clips[3].Transition!.Kind);
+    }
+
+    [Fact]
     public void Zoom_without_explicit_scales_uses_motion_settings()
     {
         // Settings -> Motion -> push-in percents drive the zoom range when the
