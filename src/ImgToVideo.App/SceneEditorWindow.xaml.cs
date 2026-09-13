@@ -93,6 +93,7 @@ public partial class SceneEditorWindow : Window
     private List<(double Start, double End, string Label)> _overlayCues = new();
     private string? _overlaySceneId;
     private readonly List<Border> _stripSegments = new();
+    private List<ClipRow> _stripVisibleRows = new();
     private ClipRow? _stripDragRow;
     private ClipRow? _stripDragNext;
     private long _stripDragTotal;
@@ -194,10 +195,14 @@ public partial class SceneEditorWindow : Window
         var hoverBrush = TryFindResource("BrushHover") as System.Windows.Media.Brush;
         var textBrush = TryFindResource("BrushTextSecondary") as Brush;
         var accentBrush = TryFindResource("BrushAccent") as Brush;
+        _stripVisibleRows = visible;
+        var fps = _options.Output.Fps;
+        var cumulative = 0L;
 
         for (var i = 0; i < visible.Count; i++)
         {
             var row = visible[i];
+            var startSeconds = cumulative / fps;
             StripGrid.ColumnDefinitions.Add(new ColumnDefinition
             {
                 Width = new GridLength(durations[i], GridUnitType.Star),
@@ -209,7 +214,7 @@ public partial class SceneEditorWindow : Window
                 CornerRadius = new CornerRadius(3),
                 Margin = new Thickness(1, 0, 1, 0),
                 Opacity = 0.65,
-                ToolTip = $"{row.Display} — {durations[i]} frames ({durations[i] / _options.Output.Fps:F1} s)",
+                ToolTip = $"{row.Display} — {durations[i]} frames ({durations[i] / fps:F1} s) — click to jump here",
                 Child = new TextBlock
                 {
                     Text = row.ShotId is null ? (i + 1).ToString() : row.ShotId.Replace("shot-", "#"),
@@ -220,9 +225,16 @@ public partial class SceneEditorWindow : Window
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 },
             };
+            segment.MouseLeftButtonDown += (_, e) =>
+            {
+                PlayerHost.PausePlayback();
+                PlayerHost.SeekToSeconds(startSeconds);
+                e.Handled = true;
+            };
             Grid.SetColumn(segment, i);
             StripGrid.Children.Add(segment);
             _stripSegments.Add(segment);
+            cumulative += durations[i];
 
             if (i == visible.Count - 1)
             {
@@ -271,6 +283,7 @@ public partial class SceneEditorWindow : Window
         _stripDragTotal = (TryParseFrames(left.Duration, out var d) && d > 0 ? d : 1) +
                           (TryParseFrames(right.Duration, out var n) && n > 0 ? n : 1);
         _stripDragging = true;
+        PlayerHost.PausePlayback();
         handle.CaptureMouse();
         handle.Background = TryFindResource("BrushAccent") as Brush;
         e.Handled = true;
@@ -300,13 +313,22 @@ public partial class SceneEditorWindow : Window
         }
 
         _stripDragRow.Duration = boundary.ToString(CultureInfo.InvariantCulture);
-        _stripDragNext!.Duration = (_stripDragTotal - boundary).ToString(CultureInfo.InvariantCulture);
+        _stripDragNext.Duration = (_stripDragTotal - boundary).ToString(CultureInfo.InvariantCulture);
         _stripDragRow.NudgeLabel = NudgeLabelFor(_stripDragRow);
         _stripDragNext.NudgeLabel = NudgeLabelFor(_stripDragNext);
         StripGrid.ColumnDefinitions[_stripDragColumn].Width =
             new GridLength(boundary, GridUnitType.Star);
         StripGrid.ColumnDefinitions[_stripDragColumn + 1].Width =
             new GridLength(_stripDragTotal - boundary, GridUnitType.Star);
+
+        // Live preview: park the player on the frame where the cut now sits.
+        var prefix = 0L;
+        for (var k = 0; k < _stripDragColumn; k++)
+        {
+            prefix += TryParseFrames(_stripVisibleRows[k].Duration, out var f) && f > 0 ? f : 0;
+        }
+
+        PlayerHost.SeekToSeconds((prefix + boundary) / _options.Output.Fps);
     }
 
     private void StripHandle_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)

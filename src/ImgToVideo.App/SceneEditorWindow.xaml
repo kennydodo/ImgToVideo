@@ -186,8 +186,13 @@
                 Background="{StaticResource BrushPanel}"
                 BorderBrush="{StaticResource BrushBorderSubtle}"
                 BorderThickness="1" CornerRadius="4">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="10,8,10,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10,8,10,0">
                     <Button x:Name="BtnPlayScene" Content="▶ Play scene"
                             Style="{StaticResource SecondaryButton}"
                             ToolTip="Render and play the listed clips with this editor's row edits."
@@ -201,8 +206,8 @@
                             ToolTip="Open the current preview in a floating window"
                             Click="BtnUndock_Click"/>
                 </StackPanel>
-                <local:PlayerControl x:Name="PlayerHost" Margin="10,8,10,0"/>
-                <Border Background="{StaticResource BrushRecessed}"
+                <local:PlayerControl Grid.Row="1" x:Name="PlayerHost" Margin="10,8,10,0"/>
+                <Border Grid.Row="2" Background="{StaticResource BrushRecessed}"
                         BorderBrush="{StaticResource BrushBorderSubtle}"
                         BorderThickness="1" CornerRadius="4" Padding="6" Margin="10,8,10,10">
                     <StackPanel>
@@ -212,7 +217,7 @@
                                    Text="Timeline strip — each block is one shot, sized by its frames. Drag the handle between blocks to move the cut; the accent outline follows playback."/>
                     </StackPanel>
                 </Border>
-            </StackPanel>
+            </Grid>
         </Border>
     </Grid>
     </DockPanel>

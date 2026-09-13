@@ -12,7 +12,6 @@ public partial class PlayerControl : UserControl
     private bool _isSeeking;
     private bool _suppressPositionEvents;
     private double _lastLiveSeekSeconds = -1;
-    private bool _wasPlayingBeforeSeek;
 
     public event EventHandler<Exception>? PlaybackFailed;
 
@@ -172,19 +171,7 @@ public partial class PlayerControl : UserControl
     private void SldPosition_DragStarted(object sender, DragStartedEventArgs e)
     {
         _isSeeking = true;
-        _wasPlayingBeforeSeek = _isPlaying;
-        if (_isPlaying)
-        {
-            try
-            {
-                Player.Pause();
-            }
-            catch (InvalidOperationException)
-            {
-            }
-
-            SetPlaying(false);
-        }
+        PausePlayback();
     }
 
     private void SldPosition_DragCompleted(object sender, DragCompletedEventArgs e)
@@ -192,10 +179,42 @@ public partial class PlayerControl : UserControl
         _isSeeking = false;
         SeekTo(SldPosition.Value);
         UpdatePositionUi();
-        if (_wasPlayingBeforeSeek)
+    }
+
+    /// <summary>Pauses playback, keeping the current frame.</summary>
+    public void PausePlayback()
+    {
+        if (!_isPlaying)
         {
-            _wasPlayingBeforeSeek = false;
-            ResumePlay();
+            return;
+        }
+
+        try
+        {
+            Player.Pause();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        SetPlaying(false);
+    }
+
+    /// <summary>Seeks the loaded preview to the given position in seconds.</summary>
+    public void SeekToSeconds(double seconds)
+    {
+        if (CurrentPath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Player.Position = TimeSpan.FromSeconds(Math.Max(0, seconds));
+            UpdatePositionUi();
+        }
+        catch (InvalidOperationException)
+        {
         }
     }
 
