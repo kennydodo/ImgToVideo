@@ -74,6 +74,7 @@ public partial class SettingsWindow : Window
         TxtOutputWidth.Text = Options.Output.Width.ToString(CultureInfo.InvariantCulture);
         TxtOutputHeight.Text = Options.Output.Height.ToString(CultureInfo.InvariantCulture);
         TxtOutputFps.Text = F(Options.Output.Fps);
+        LoadResolutionPreset();
 
         TxtSentenceGap.Text = F(Options.SceneInference.SentenceGapSeconds);
         TxtTerminalGap.Text = F(Options.SceneInference.TerminalPunctuationGapSeconds);
@@ -87,6 +88,32 @@ public partial class SettingsWindow : Window
         TxtEncoder.Text = Options.Render.Encoder;
         TxtFfmpegPath.Text = Options.Render.FfmpegPath;
         TxtFfprobePath.Text = Options.Render.FfprobePath;
+    }
+
+    private void LoadResolutionPreset()
+    {
+        var presets = new[] { (1920, 1080, "HD"), (2560, 1440, "2K"), (3840, 2160, "4K") };
+        CmbResolution.ItemsSource = presets.Select(p => $"{p.Item1} × {p.Item2} ({p.Item3})").ToList();
+        var match = presets.FirstOrDefault(p => p.Item1 == Options.Output.Width && p.Item2 == Options.Output.Height);
+        CmbResolution.SelectedItem = match.Item3 is not null
+            ? $"{match.Item1} × {match.Item2} ({match.Item3})"
+            : $"{Options.Output.Width} × {Options.Output.Height} (custom)";
+    }
+
+    private void CmbResolution_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CmbResolution.SelectedItem is not string text ||
+            text.Contains("custom", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(text, @"^(\d+)\s*×\s*(\d+)");
+        if (match.Success)
+        {
+            TxtOutputWidth.Text = match.Groups[1].Value;
+            TxtOutputHeight.Text = match.Groups[2].Value;
+        }
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)

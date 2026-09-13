@@ -55,6 +55,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="240"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="Scene:"
@@ -62,6 +63,10 @@
                        VerticalAlignment="Center" Margin="0,0,8,0"/>
             <ComboBox Grid.Column="1" x:Name="CmbScene"
                       SelectionChanged="CmbScene_SelectionChanged"/>
+            <CheckBox Grid.Column="2" x:Name="ChkAllScenes" Content="All scenes" Margin="12,0,0,0"
+                      VerticalAlignment="Center"
+                      ToolTip="Show every scene's shots in one list; PLAY SCENE then previews the whole video with your current edits."
+                      Checked="ChkAllScenes_Changed" Unchecked="ChkAllScenes_Changed"/>
         </Grid>
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
@@ -76,42 +81,13 @@
                    Text="Edits are saved to overrides.json and applied on the next BUILD PREVIEW."
                    TextWrapping="Wrap" Margin="0,8,0,0"/>
 
-        <Border DockPanel.Dock="Bottom"
-                Background="{StaticResource BrushPanel}"
-                BorderBrush="{StaticResource BrushBorderSubtle}"
-                BorderThickness="1" CornerRadius="4" Margin="0,10,0,0">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="10,8,10,0">
-                    <Button x:Name="BtnPlayScene" Content="▶ Play scene"
-                            Style="{StaticResource SecondaryButton}"
-                            ToolTip="Render and play every clip of the selected scene with this editor's row edits."
-                            Click="BtnPlayScene_Click"/>
-                    <Button x:Name="BtnPlayAll" Content="▶ Play all"
-                            Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
-                            ToolTip="Play the full BUILD PREVIEW output (out\preview.mp4). Reflects saved overrides only."
-                            Click="BtnPlayAll_Click"/>
-                    <Button x:Name="BtnUndock" Content="Undock"
-                            Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
-                            ToolTip="Open the current preview in a floating window"
-                            Click="BtnUndock_Click"/>
-                </StackPanel>
-                <local:PlayerControl x:Name="PlayerHost" Height="280" Margin="10,8,10,10"/>
-            </StackPanel>
-        </Border>
-
-        <Border DockPanel.Dock="Bottom"
-                Background="{StaticResource BrushRecessed}"
-                BorderBrush="{StaticResource BrushBorderSubtle}"
-                BorderThickness="1" CornerRadius="4" Padding="6" Margin="0,10,0,0">
-            <StackPanel>
-                <Grid x:Name="StripGrid" Height="36" MinHeight="36"/>
-                <TextBlock FontSize="10.5" Margin="0,4,0,0"
-                           Foreground="{StaticResource BrushTextTertiary}"
-                           Text="Timeline strip — each block is one shot, sized by its frames. Drag the handle between blocks to move the cut; the accent outline follows playback."/>
-            </StackPanel>
-        </Border>
-
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="2*" MinHeight="110"/>
+                <RowDefinition Height="6"/>
+                <RowDefinition Height="1*" MinHeight="170"/>
+            </Grid.RowDefinitions>
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <Grid Margin="0,0,0,4">
                     <Grid.ColumnDefinitions>
@@ -174,6 +150,8 @@
                                     <Slider Minimum="-120" Maximum="120"
                                             Value="{Binding Nudge, Mode=OneWay}"
                                             Tag="{Binding}" ValueChanged="NudgeSlider_ValueChanged"
+                                            Thumb.DragStarted="NudgeSlider_DragStarted"
+                                            Thumb.DragCompleted="NudgeSlider_DragCompleted"
                                             VerticalAlignment="Center"
                                             ToolTip="Drag to shift the cut after this clip (±120 frames); Frames boxes update live. Shifting a scene-end cut moves frames across the scene boundary."/>
                                     <TextBlock Text="{Binding NudgeLabel}"
@@ -198,5 +176,43 @@
                 </ItemsControl>
             </StackPanel>
         </ScrollViewer>
+
+        <GridSplitter Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                      ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
+                      Background="{StaticResource BrushBorderSubtle}"/>
+
+        <Border Grid.Row="2"
+                Background="{StaticResource BrushPanel}"
+                BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="1" CornerRadius="4">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,8,10,0">
+                    <Button x:Name="BtnPlayScene" Content="▶ Play scene"
+                            Style="{StaticResource SecondaryButton}"
+                            ToolTip="Render and play the listed clips with this editor's row edits."
+                            Click="BtnPlayScene_Click"/>
+                    <Button x:Name="BtnPlayAll" Content="▶ Play all"
+                            Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                            ToolTip="Play the full BUILD PREVIEW output (out\preview.mp4). Reflects saved overrides only."
+                            Click="BtnPlayAll_Click"/>
+                    <Button x:Name="BtnUndock" Content="Undock"
+                            Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                            ToolTip="Open the current preview in a floating window"
+                            Click="BtnUndock_Click"/>
+                </StackPanel>
+                <local:PlayerControl x:Name="PlayerHost" Margin="10,8,10,0"/>
+                <Border Background="{StaticResource BrushRecessed}"
+                        BorderBrush="{StaticResource BrushBorderSubtle}"
+                        BorderThickness="1" CornerRadius="4" Padding="6" Margin="10,8,10,10">
+                    <StackPanel>
+                        <Grid x:Name="StripGrid" Height="36" MinHeight="36"/>
+                        <TextBlock FontSize="10.5" Margin="0,4,0,0"
+                                   Foreground="{StaticResource BrushTextTertiary}"
+                                   Text="Timeline strip — each block is one shot, sized by its frames. Drag the handle between blocks to move the cut; the accent outline follows playback."/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </Grid>
     </DockPanel>
 </Window>

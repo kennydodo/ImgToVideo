@@ -192,6 +192,49 @@ public static class ProjectLoader
             .ToList();
     }
 
+    private static void WarnOnRiskyPngFormat(string file, List<ValidationIssue> issues)
+    {
+        if (!string.Equals(Path.GetExtension(file), ".png", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(file);
+            Span<byte> header = stackalloc byte[26];
+            if (stream.Read(header) < 26 ||
+                header[0] != 0x89 || header[1] != 0x50 || header[2] != 0x4E || header[3] != 0x47)
+            {
+                return;
+            }
+
+            var bitDepth = header[24];
+            var colorType = header[25];
+            if (bitDepth == 8 && colorType is 2 or 6)
+            {
+                return;
+            }
+
+            var colorName = colorType switch
+            {
+                0 => "grayscale",
+                2 => "RGB",
+                3 => "palette",
+                4 => "grayscale+alpha",
+                6 => "RGBA",
+                _ => "unknown",
+            };
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Warning, "PNG_FORMAT_RISKY",
+                $"\"{Path.GetFileName(file)}\" is a {bitDepth}-bit {colorName} PNG — Premiere can render such files " +
+                "as black frames. Re-export it as an 8-bit RGB or RGBA PNG."));
+        }
+        catch (IOException)
+        {
+        }
+    }
+
     private static (List<ImageInfo> All, List<SceneImageGroup> Groups) LoadManifestImages(
         ImgToVideo.Core.Manifest.VisualManifest manifest,
         string projectFolder, NamingOptions naming, List<ValidationIssue> issues)
@@ -226,6 +269,8 @@ public static class ProjectLoader
                     ValidationSeverity.Warning, "IMAGE_UNREADABLE",
                     $"\"{Path.GetFileName(file)}\" has unreadable image dimensions."));
             }
+
+            WarnOnRiskyPngFormat(file, issues);
 
             var stem = Path.GetFileNameWithoutExtension(file);
             images.Add(new ImageInfo(
@@ -499,6 +544,8 @@ public static class ProjectLoader
                     ValidationSeverity.Warning, "IMAGE_UNREADABLE",
                     $"\"{Path.GetFileName(file)}\" has unreadable image dimensions."));
             }
+
+            WarnOnRiskyPngFormat(file, issues);
 
             images.Add(new ImageInfo(file, parsed, width, height));
         }

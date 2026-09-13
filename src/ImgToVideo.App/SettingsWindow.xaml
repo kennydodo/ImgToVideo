@@ -108,14 +108,22 @@
                 </GroupBox>
 
                 <GroupBox Header="Output" Padding="8" Margin="0,0,0,8">
-                    <UniformGrid Columns="2">
-                        <TextBlock Text="Width" VerticalAlignment="Center"/>
-                        <TextBox x:Name="TxtOutputWidth" Padding="3,2" Margin="0,2,12,2"/>
-                        <TextBlock Text="Height" VerticalAlignment="Center"/>
-                        <TextBox x:Name="TxtOutputHeight" Padding="3,2" Margin="0,2,12,2"/>
-                        <TextBlock Text="FPS" VerticalAlignment="Center"/>
-                        <TextBox x:Name="TxtOutputFps" Padding="3,2" Margin="0,2,12,2"/>
-                    </UniformGrid>
+                    <StackPanel>
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Resolution preset" VerticalAlignment="Center"
+                                       ToolTip="Picks Width/Height below. 2K (2560×1440) is the default; 4K is heavier to render."/>
+                            <ComboBox x:Name="CmbResolution" Margin="0,2,12,2"
+                                      SelectionChanged="CmbResolution_SelectionChanged"/>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Width" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtOutputWidth" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="Height" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtOutputHeight" Padding="3,2" Margin="0,2,12,2"/>
+                            <TextBlock Text="FPS" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtOutputFps" Padding="3,2" Margin="0,2,12,2"/>
+                        </UniformGrid>
+                    </StackPanel>
                 </GroupBox>
 
                 <GroupBox Header="Scene inference" Padding="8" Margin="0,0,0,8">

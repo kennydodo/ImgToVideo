@@ -88,13 +88,13 @@ public partial class SceneEditorWindow : Window
     private readonly Dictionary<string, ObservableCollection<ClipRow>> _rowsByScene = new();
     private ClipPreviewPlayerWindow? _floatingPlayer;
     private bool _updatingNudge;
+    private bool _nudgeDragging;
     private bool _saved;
     private List<(double Start, double End, string Label)> _overlayCues = new();
     private string? _overlaySceneId;
     private readonly List<Border> _stripSegments = new();
     private ClipRow? _stripDragRow;
     private ClipRow? _stripDragNext;
-    private long _stripDragBoundary;
     private long _stripDragTotal;
     private int _stripDragColumn;
     private double _stripDragAccum;
@@ -159,7 +159,7 @@ public partial class SceneEditorWindow : Window
         }
 
         PlayerHost.SetOverlay(activeIndex >= 0 ? _overlayCues[activeIndex].Label : null);
-        HighlightStripSegment(_overlaySceneId != null && _overlaySceneId == CmbScene.SelectedValue as string
+        HighlightStripSegment(_overlaySceneId is not null && _overlaySceneId == CurrentStripToken()
             ? activeIndex
             : -1);
     }
@@ -170,7 +170,7 @@ public partial class SceneEditorWindow : Window
         StripGrid.ColumnDefinitions.Clear();
         _stripSegments.Clear();
 
-        if (SelectedRows is not { } rows || rows.Count == 0)
+        if (CurrentRows() is not { } rows || rows.Count == 0)
         {
             return;
         }
@@ -268,8 +268,7 @@ public partial class SceneEditorWindow : Window
         _stripDragRow = left;
         _stripDragNext = right;
         _stripDragColumn = column;
-        _stripDragBoundary = TryParseFrames(left.Duration, out var d) && d > 0 ? d : 1;
-        _stripDragTotal = _stripDragBoundary +
+        _stripDragTotal = (TryParseFrames(left.Duration, out var d) && d > 0 ? d : 1) +
                           (TryParseFrames(right.Duration, out var n) && n > 0 ? n : 1);
         _stripDragging = true;
         handle.CaptureMouse();
@@ -420,6 +419,13 @@ public partial class SceneEditorWindow : Window
 
     private ObservableCollection<ClipRow>? SelectedRows =>
         CmbScene.SelectedValue is string id ? _rowsByScene.GetValueOrDefault(id) : null;
+
+    private bool ShowAllScenes => ChkAllScenes.IsChecked == true;
+
+    private ObservableCollection<ClipRow>? CurrentRows() =>
+        ShowAllScenes ? new ObservableCollection<ClipRow>(FlatRows()) : SelectedRows;
+
+    private string? CurrentStripToken() => ShowAllScenes ? "all" : CmbScene.SelectedValue as string;
 
     private List<ClipRow> FlatRows() => _timeline.Scenes
         .Where(s => _rowsByScene.ContainsKey(s.Id))
@@ -677,7 +683,13 @@ public partial class SceneEditorWindow : Window
 
     private void CmbScene_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        ClipList.ItemsSource = SelectedRows;
+        ClipList.ItemsSource = CurrentRows();
+        RefreshStrip();
+    }
+
+    private void ChkAllScenes_Changed(object sender, RoutedEventArgs e)
+    {
+        ClipList.ItemsSource = CurrentRows();
         RefreshStrip();
     }
 
@@ -734,9 +746,15 @@ public partial class SceneEditorWindow : Window
         delta = Math.Max(delta, 1 - duration);
         delta = Math.Min(delta, nextDuration - 1);
 
-        _updatingNudge = true;
-        slider.Value = previous + delta;
-        _updatingNudge = false;
+        // While the user is dragging, leave the thumb where they hold it and
+        // apply only the clamped delta — snapping it back mid-drag feels jumpy.
+        // DragCompleted syncs the thumb to the applied value.
+        if (!_nudgeDragging)
+        {
+            _updatingNudge = true;
+            slider.Value = previous + delta;
+            _updatingNudge = false;
+        }
 
         if (delta == 0)
         {
@@ -748,6 +766,23 @@ public partial class SceneEditorWindow : Window
         next.Duration = (nextDuration - delta).ToString(CultureInfo.InvariantCulture);
         row.NudgeLabel = NudgeLabelFor(row);
         next.NudgeLabel = NudgeLabelFor(next);
+    }
+
+    private void NudgeSlider_DragStarted(object sender, DragStartedEventArgs e)
+    {
+        _nudgeDragging = true;
+    }
+
+    private void NudgeSlider_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        _nudgeDragging = false;
+        if ((sender as Slider)?.Tag is ClipRow row)
+        {
+            _updatingNudge = true;
+            var slider = (Slider)sender;
+            slider.Value = Math.Clamp(row.Nudge, -MaxNudgeFrames, MaxNudgeFrames);
+            _updatingNudge = false;
+        }
     }
 
     private string NudgeLabelFor(ClipRow row)
@@ -1057,9 +1092,30 @@ public partial class SceneEditorWindow : Window
 
     private async void BtnPlayScene_Click(object sender, RoutedEventArgs e)
     {
-        if (CmbScene.SelectedValue is not string sceneId || !_rowsByScene.TryGetValue(sceneId, out var rows))
+        IReadOnlyList<ClipRow> rows;
+        string sceneId;
+        string title;
+        if (ShowAllScenes)
         {
-            return;
+            if (CurrentRows() is not { } allRows || allRows.Count == 0)
+            {
+                return;
+            }
+
+            rows = allRows;
+            sceneId = "all";
+            title = "All scenes";
+        }
+        else
+        {
+            if (CmbScene.SelectedValue is not string id || !_rowsByScene.TryGetValue(id, out var sceneRows))
+            {
+                return;
+            }
+
+            rows = sceneRows;
+            sceneId = id;
+            title = $"Scene {sceneId}";
         }
 
         var previewClips = new List<VideoClip>();
@@ -1137,11 +1193,11 @@ public partial class SceneEditorWindow : Window
                     "Preview audio mux failed", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
 
-            TxtEditorStatus.Text = $"Scene {sceneId} preview ready." +
+            TxtEditorStatus.Text = $"Preview ready ({title})." +
                 (outcome.Note is null ? "" : " " + outcome.Note);
             _overlaySceneId = sceneId;
             SetOverlayCues(previewClips);
-            PlayerHost.Load(outcome.PlayPath, $"Scene {sceneId}");
+            PlayerHost.Load(outcome.PlayPath, title);
         }
         catch (Exception ex)
         {
