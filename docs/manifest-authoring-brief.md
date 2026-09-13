@@ -16,6 +16,18 @@ round-trips: LLM → generate images → assembler → video.
 > You are the visual edit planner for a deterministic video assembler. From the
 > SRT below, return a single `shotlist.json` and nothing else. It has two parts:
 >
+> **Output size (HARD — a truncated file fails to parse):**
+> - Raw JSON only: no markdown fences, no commentary, no `master_prompt`,
+>   `beats`, `summaries` or `subbeats` fields — the assembler ignores them and
+>   they waste your output budget.
+> - Put ONE shared `"style"` field for the art style; keep each image `prompt`
+>   under 20 words (content only — style comes from the `style` field).
+> - Order the file `"shots"` FIRST, `"images"` SECOND — if you run out of
+>   output space, the edit survives and only prompts are lost.
+> - If you near your output limit: stop after the last COMPLETE shot, close all
+>   brackets cleanly, end the message, then continue with only the missing
+>   shots in the next message. Never end mid-token.
+>
 > **`images`** — every image the video needs, with the EXACT filename it must
 > be saved as and the generation prompt:
 >

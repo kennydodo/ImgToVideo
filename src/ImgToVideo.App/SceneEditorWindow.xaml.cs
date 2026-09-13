@@ -229,59 +229,79 @@ public partial class SceneEditorWindow : Window
                 continue;
             }
 
-            var handle = new Thumb
+            var handle = new Border
             {
-                Width = 10,
-                Background = TryFindResource("BrushBorder") as Brush,
+                Width = 14,
+                Background = TryFindResource("BrushSecondaryBorder") as Brush,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(-5, 5, -5, 5),
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Margin = new Thickness(-7, 0, -7, 0),
                 CornerRadius = new CornerRadius(2),
                 Cursor = Cursors.SizeWE,
                 ToolTip = "Drag to move this cut",
+                Tag = (row, visible[i + 1], i),
             };
-            var left = row;
-            var right = visible[i + 1];
-            handle.DragStarted += (_, _) => BeginStripDrag(left, right, i);
-            handle.DragDelta += (_, e) => StripHandleDragged(e);
-            handle.DragCompleted += (_, _) => EndStripDrag();
+            handle.MouseEnter += (_, _) => handle.Background = TryFindResource("BrushAccent") as Brush;
+            handle.MouseLeave += (_, _) =>
+            {
+                if (!_stripDragging)
+                {
+                    handle.Background = TryFindResource("BrushSecondaryBorder") as Brush;
+                }
+            };
+            handle.MouseLeftButtonDown += StripHandle_MouseLeftButtonDown;
+            handle.MouseMove += StripHandle_MouseMove;
+            handle.MouseLeftButtonUp += StripHandle_MouseLeftButtonUp;
             Grid.SetColumn(handle, i + 1);
             Panel.SetZIndex(handle, 2);
             StripGrid.Children.Add(handle);
         }
     }
 
-    private void BeginStripDrag(ClipRow row, ClipRow next, int column)
+    private void StripHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        _stripDragging = true;
-        _stripDragAccum = 0;
-        _stripDragRow = row;
-        _stripDragNext = next;
-        _stripDragColumn = column;
-        _stripDragBoundary = TryParseFrames(row.Duration, out var d) && d > 0 ? d : 1;
-        _stripDragTotal = _stripDragBoundary +
-                          (TryParseFrames(next.Duration, out var n) && n > 0 ? n : 1);
-    }
-
-    private void StripHandleDragged(DragDeltaEventArgs e)
-    {
-        if (!_stripDragging || _stripDragRow is null || _stripDragNext is null ||
-            StripGrid.ActualWidth < 1)
+        if (sender is not Border handle || handle.Tag is not (ClipRow left, ClipRow right, int column))
         {
             return;
         }
 
-        _stripDragAccum += e.HorizontalChange;
-        var boundary = Math.Clamp(
-            _stripDragBoundary + (long)Math.Round(_stripDragAccum / StripGrid.ActualWidth * _stripDragTotal),
-            1, _stripDragTotal - 1);
+        _stripDragRow = left;
+        _stripDragNext = right;
+        _stripDragColumn = column;
+        _stripDragBoundary = TryParseFrames(left.Duration, out var d) && d > 0 ? d : 1;
+        _stripDragTotal = _stripDragBoundary +
+                          (TryParseFrames(right.Duration, out var n) && n > 0 ? n : 1);
+        _stripDragging = true;
+        handle.CaptureMouse();
+        handle.Background = TryFindResource("BrushAccent") as Brush;
+        e.Handled = true;
+    }
 
-        if (TryParseFrames(_stripDragRow.Duration, out var current) && current == boundary)
+    private void StripHandle_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_stripDragging || StripGrid.ActualWidth < 1 ||
+            _stripDragColumn + 1 >= StripGrid.ColumnDefinitions.Count)
+        {
+            return;
+        }
+
+        // The cut follows the cursor exactly: cursor position -> fraction of
+        // the strip -> frame within the row+next pair.
+        var px = e.GetPosition(StripGrid).X;
+        ApplyStripBoundary(Math.Clamp(
+            (long)Math.Round(px / StripGrid.ActualWidth * _stripDragTotal),
+            1, Math.Max(1, _stripDragTotal - 1)));
+    }
+
+    private void ApplyStripBoundary(long boundary)
+    {
+        if (TryParseFrames(_stripDragRow!.Duration, out var current) && current == boundary)
         {
             return;
         }
 
         _stripDragRow.Duration = boundary.ToString(CultureInfo.InvariantCulture);
-        _stripDragNext.Duration = (_stripDragTotal - boundary).ToString(CultureInfo.InvariantCulture);
+        _stripDragNext!.Duration = (_stripDragTotal - boundary).ToString(CultureInfo.InvariantCulture);
         _stripDragRow.NudgeLabel = NudgeLabelFor(_stripDragRow);
         _stripDragNext.NudgeLabel = NudgeLabelFor(_stripDragNext);
         StripGrid.ColumnDefinitions[_stripDragColumn].Width =
@@ -290,15 +310,16 @@ public partial class SceneEditorWindow : Window
             new GridLength(_stripDragTotal - boundary, GridUnitType.Star);
     }
 
-    private void EndStripDrag()
+    private void StripHandle_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_stripDragging)
+        if (_stripDragging && sender is Border handle)
         {
-            return;
+            handle.ReleaseMouseCapture();
+            handle.Background = TryFindResource("BrushSecondaryBorder") as Brush;
+            _stripDragging = false;
+            RefreshStrip();
+            e.Handled = true;
         }
-
-        _stripDragging = false;
-        RefreshStrip();
     }
 
     private void HighlightStripSegment(int index)
@@ -328,7 +349,12 @@ public partial class SceneEditorWindow : Window
             row.NudgeLabel = NudgeLabelFor(row);
         }
 
-        RefreshStrip();
+        // A strip drag updates Durations programmatically; rebuilding the strip
+        // here would destroy the Thumb that is capturing the mouse mid-drag.
+        if (!_stripDragging)
+        {
+            RefreshStrip();
+        }
     }
 
     private void ExcludeBox_Changed(object sender, RoutedEventArgs e) => RefreshStrip();

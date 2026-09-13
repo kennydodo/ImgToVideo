@@ -211,12 +211,18 @@ public static class Fcp7XmlExporter
             (clip.EndViewport.Y + clip.EndViewport.Height / 2.0 -
              (clip.StartViewport.Y + clip.StartViewport.Height / 2.0)) * Progress(f);
 
-        double ScaleAt(long f) => sourceWidth * 100.0 / ViewportWidth(f);
+        // Premiere Motion scale is relative to the image's NATIVE pixel size.
+        // The viewport must fill the frame: frameWidth / viewportWidth.
+        // (sourceWidth*100/viewportWidth was wrong — it over-zoomed images
+        // larger than the sequence frame by ~20%.)
+        double ScaleAt(long f) => resolution.Width * 100.0 / ViewportWidth(f);
+
+        // Premiere's Motion center is relative to the FRAME CENTER (0,0),
+        // not absolute sequence pixels — absolute values push the image
+        // off-screen and render black frames.
         double HorizAt(long f) =>
-            resolution.Width / 2.0 +
             (sourceWidth / 2.0 - ViewportCenterX(f)) * (resolution.Width / ViewportWidth(f));
         double VertAt(long f) =>
-            resolution.Height / 2.0 +
             (sourceHeight / 2.0 - ViewportCenterY(f)) * (resolution.Height / ViewportHeight(f));
 
         // Sample the eased motion every ~half second (min 2, max 13 keyframes)

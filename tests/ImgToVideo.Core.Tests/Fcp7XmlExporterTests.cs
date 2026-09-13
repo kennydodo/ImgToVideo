@@ -156,13 +156,13 @@ public class Fcp7XmlExporterTests
         // Eased motion is sampled (~2 keyframes/second): 90 frames @ 30 fps -> 6 samples.
         var scale = ScalarKeyframes(clipItem, "scale");
         Assert.Equal(6, scale.Length);
-        Assert.Equal(("0", "120"), scale[0]);
-        Assert.Equal(("89", "128"), scale[^1]);
+        Assert.Equal(("0", "100"), scale[0]);
+        Assert.Equal(("89", "106.666667"), scale[^1]);
         Assert.Equal(scale, scale.OrderBy(k => long.Parse(k.When)));
 
         var center = CenterKeyframes(clipItem);
         Assert.Equal(6, center.Length);
-        Assert.All(center, k => Assert.Equal(("960", "540"), (k.Horiz, k.Vert)));
+        Assert.All(center, k => Assert.Equal(("0", "0"), (k.Horiz, k.Vert)));
     }
 
     [Fact]
@@ -175,12 +175,14 @@ public class Fcp7XmlExporterTests
 
         var scale = ScalarKeyframes(clipItem, "scale");
         Assert.Equal(6, scale.Length);
-        Assert.All(scale, k => Assert.Equal("150", k.Value));
+        Assert.All(scale, k => Assert.Equal("100", k.Value));
 
+        // Center is relative to the frame center: the viewport pans right,
+        // so the image slides left from +480 to -480.
         var center = CenterKeyframes(clipItem);
         Assert.Equal(6, center.Length);
-        Assert.Equal(("0", "1440", "540"), center[0]);
-        Assert.Equal(("89", "480", "540"), center[^1]);
+        Assert.Equal(("0", "480", "0"), center[0]);
+        Assert.Equal(("89", "-480", "0"), center[^1]);
         var horiz = center.Select(k => double.Parse(k.Horiz, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
         Assert.Equal(horiz, horiz.OrderByDescending(v => v).ToArray());
     }
