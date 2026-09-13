@@ -76,7 +76,7 @@ public class Fcp7XmlExporterTests
     private static (string When, string Horiz, string Vert)[] CenterKeyframes(XElement clipItem)
     {
         var parameter = clipItem.Descendants("parameter")
-            .First(p => (string?)p.Element("parameterid") == "center");
+            .First(p => (string?)p.Element("parameterid") == "position");
         return parameter.Elements("keyframe")
             .Select(k => (
                 (string?)k.Element("when") ?? "",

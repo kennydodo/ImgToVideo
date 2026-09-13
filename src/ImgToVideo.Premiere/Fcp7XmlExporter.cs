@@ -245,7 +245,7 @@ public static class Fcp7XmlExporter
 
         var centerParameter = new XElement("parameter",
             new XAttribute("authoringApp", "PremierePro"),
-            new XElement("parameterid", "center"),
+            new XElement("parameterid", "position"),
             new XElement("name", "Position"),
             CenterValue(HorizAt(samples[0]), VertAt(samples[0])),
             samples.Select(f => new XElement("keyframe",
