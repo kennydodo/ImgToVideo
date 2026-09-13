@@ -74,7 +74,7 @@ Raw JSON. No fences, no commentary. Exactly this shape:
 - `shots` FIRST, `images` SECOND.
 - `cues`: `"7"`, `"7-9"`, or `[7,8,9]`. **HARD: every cue from 1 to the last must be covered exactly once — no gaps, no overlaps.** The last shot must end at the final cue.
 - `asset`: exact filename (new or reused). `scene`: the main beat id (S01...). `shot_id`, `framing`, `start_ms`: do not include — the assembler derives or owns them.
-- `motion`: ST | ZI | ZO | PL | PR | PU | PD | PV — chosen for the composition, never cycled mechanically.
+- `motion`: ST | ZI | ZO | PL | PR | PU | PD | PV — **must match the motion code in the asset's own filename** (the image was composed for that motion and overscan). Deviate only with a deliberate reason. Never leave most shots ST.
 - `transition`: omit for cuts (default). Allowed values: CROSSFADE, DIP, DIP_WHITE. Use sparingly — at main-beat boundaries. Omit on the LAST shot entirely.
 - `images` contains ONLY new files (one entry each, no duplicates). Reused shots do not appear here.
 - Do not include: master_prompt, beats, subbeats, summaries, narration_text, framing, start_ms/end_ms, video/fps/schema_version — the assembler derives or ignores all of them, and they waste your output budget.
