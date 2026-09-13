@@ -1,86 +1,131 @@
-# Manifest authoring brief — give this to the LLM that plans the video
+# Master planning prompt — two documents in one shot
 
-The LLM plans the whole visual layer in ONE pass, directly from the SRT. It
-outputs a single `shotlist.json` that contains BOTH the image prompts (for the
-batch image app) AND the edit (which image covers which subtitle lines). No
-round-trips: LLM → generate images → assembler → video.
+**How to use:** paste everything below the line into the LLM (DeepSeek/GPT/Claude), followed by: (1) the full SRT, (2) the channel visual style instructions, (3) a character/reference bible if one exists. The LLM returns **two documents**: the IMAGE BATCH SHEET (master prompt + per-scene batch prompts — give this to the batch image app) and **shotlist.json** (drop it in the project folder, run ANALYZE). Then iterate with the diagnostics COPY button if needed.
 
-## What to paste alongside this brief
+---
 
-1. The full SRT file (verbatim).
-2. If images already exist: the list of their filenames (exact names from
-   `images\`). If starting from scratch, nothing else is needed.
+You are a video editor, visual director, visual storyteller, and image-prompt engineer for a high-retention YouTube channel. Transform a narration SRT file into two documents: an image batch sheet and a shotlist for a deterministic video assembler.
 
-## The prompt
+You will receive: the final narration .srt file, the channel's visual style instructions, a character/reference bible if recurring characters are required.
 
-> You are the visual edit planner for a deterministic video assembler. From the
-> SRT below, return a single `shotlist.json` and nothing else. It has two parts:
->
-> **Output size (HARD — a truncated file fails to parse):**
-> - Raw JSON only: no markdown fences, no commentary, no `master_prompt`,
->   `beats`, `summaries` or `subbeats` fields — the assembler ignores them and
->   they waste your output budget.
-> - Put ONE shared `"style"` field for the art style; keep each image `prompt`
->   under 20 words (content only — style comes from the `style` field).
-> - Order the file `"shots"` FIRST, `"images"` SECOND — if you run out of
->   output space, the edit survives and only prompts are lost.
-> - If you near your output limit: stop after the last COMPLETE shot, close all
->   brackets cleanly, end the message, then continue with only the missing
->   shots in the next message. Never end mid-token.
->
-> **`images`** — every image the video needs, with the EXACT filename it must
-> be saved as and the generation prompt:
->
-> ```json
-> { "file": "S04_03_HYB_ST.png", "prompt": "what to draw, one detailed sentence" }
-> ```
->
-> Filename rules (HARD — the assembler and the batch app both key on them):
-> `S##_##_TYPE_MOTION.png` — scene number, image index inside the scene, then:
-> - TYPE: SCN (scene/character) | CU (close-up) | INF (infographic) |
->   CMP (comparison) | PROC (process) | HYB (hybrid scene+graphic) |
->   OVR (overview)
-> - MOTION: ST | ZI | ZO | PL | PR | PU | PD | PV — this also defines the
->   required canvas: ST/ZI/ZO 2304×1296, PL/PR 2880×1296 (subject left third
->   for PR, right third for PL), PU/PD 2304×2160, PV 3840×1296.
-> Sequential numbering per scene, uppercase codes, .png lowercase. If an image
-> already exists (in the provided inventory), reuse its exact filename — never
-> rename or duplicate it.
->
-> **`shots`** — the edit, in narration order:
->
-> ```json
-> { "cues": "12-15", "asset": "S04_03_HYB_ST.png", "motion": "ST" }
-> ```
->
-> - `cues`: a range `"1-3"`, single `"4"`, or list `[1,2,3]`. Cover EVERY cue
->   from 1 to N exactly once — no gaps, no overlaps. The last shot ends at cue N.
-> - `asset`: the filename from the images list. Reuse an image only when the
->   narration genuinely returns to it; keep a source change every 3–6 s and
->   never hold one image beyond ~12 s.
-> - `motion` (optional, default STATIC): ST | ZI | ZO | PL | PR | PU | PD | PV.
->   Zooms default 1.0→1.1. PU/PD suit tall infographics, PL/PR suit wide scenes.
-> - `transition` (optional, default CUT): CROSSFADE for flow, DIP/DIP_WHITE
->   sparingly for scene breaks.
-> - `framing` (optional, default wide): wide | medium | close | detail.
-> - `scene` (optional): a scene id like "S04" to group shots for the editor.
+## SECTION 1 — NARRATION IS THE SOURCE OF TRUTH
 
-## Self-check before returning
+The SRT controls narration timing, semantic structure, visual changes, and visual content. Do NOT divide the video by arbitrary duration rules: no fixed seconds-per-image rule, no minimum/maximum image duration, no target image count. Visual changes come from changes in meaning. A visual may last two seconds if a new idea starts after two seconds, or fifteen seconds if the narration keeps developing the same idea.
 
-1. Every cue 1..N is covered exactly once, in order.
-2. Every `asset` exists in the provided inventory OR has an entry in `images`
-   with a prompt.
-3. Every `images[].file` follows `S##_##_TYPE_MOTION.png` and has a prompt.
-4. All motion/transition/framing values from the lists above.
+## SECTION 2 — THE MOST COMMON FAILURE: OVER-GENERATION
 
-## What the assembler does next (no LLM involvement)
+Actively resist these traps:
 
-- Expands the shotlist into the full manifest: shot times = first/last cue's
-  SRT times, narration text auto-filled, frame quantization, gap/overlap fixes,
-  audio tail pinning.
-- Filenames not on disk yet become GENERATE requests — `out\build-report.json`
-  → `missing_assets[]` lists file + beat + timecode + narration + prompt, which
-  is exactly what the batch image app needs.
-- Only come back to the LLM if Diagnostics shows errors (COPY button → paste
-  into chat): e.g. `SHOTLIST_CUE_UNKNOWN`, `SHOTLIST_ASSET_TYPO`
-  (with the suggested correct name), `SHOTLIST_CUES_OVERLAP`.
+- **One cue = one image is failure.** A sub-beat may cover part of a cue, one cue, or many cues. Boundaries come from meaning. "A branch snaps." + "Leaves move." = one idea, one image. "Maybe it's a bear." + "Maybe a wolf." + "Maybe a mountain lion." = one comparison image.
+- **Rephrasing = reuse.** If the narrator restates the same visual concept, the shot REUSES the existing image — no new generation.
+- **List items share one image.** "A tent." "A backpack." "Metal cooking equipment." "Flashlights." "Clothes." = one campsite overview image held across all cues.
+- **Body parts share one image.** Legs, eyes, arms described in turn = one figure with the parts emphasized.
+- **Don't build infographics for single sentences** that belong to a larger visual idea — consolidate.
+
+Health metric: 6–8 seconds average per unique image is good pacing; 3–4 seconds average is frantic. A 6–7 minute video should land around 45–65 unique images, not 100+. If your draft has one image per cue, or one per two cues, you have failed — group by visual idea.
+
+## SECTION 3 — HIERARCHY
+
+1. Divide the narration into MAIN SEMANTIC BEATS (hook, problem, explanation, mechanism, evidence, misconception, consequence, solution, warning, application, conclusion...). Number S01, S02, ...
+2. Inside each beat, identify VISUAL SUB-BEATS — points where a genuinely distinct visual idea begins. Number S01_01, S01_02, ... resetting per beat.
+
+Main beats are semantic sections, not scene changes. Do not create a new main beat merely because the visual changes.
+
+## SECTION 4 — NEW vs REUSE
+
+For every sub-beat ask: has the narration introduced a genuinely different visual idea? YES → new image. NO → reuse the existing asset in `shots` (the sub-beat still exists editorially; it just references the same file).
+
+Never create an image because another cue began, time passed, the narrator rephrased, or to pad variety. Never reuse when the concept clearly changed.
+
+## SECTION 5 — DESIGN VISUALS THAT EXPLAIN
+
+Choose the strongest visual function per idea:
+- **SCN** scene / character / environment · **CU** close-up / detail · **INF** infographic / diagram · **CMP** comparison (A vs B, before/after, myth vs evidence) · **PROC** process / stages · **HYB** scene + explanatory graphics · **OVR** conceptual overview
+
+Vary camera angle, distance, subject placement, environment, focal object, metaphor, diagram structure, scale, subject count, negative space. Avoid "person standing + floating icons" for every image.
+
+For finance/statistics/data-heavy narration, represent the actual mechanism: compound growth = progressively growing stacks across time; inflation = the same basket costing more over time; debt = a self-feeding loop; two strategies = side-by-side structure; diversification = distributed assets; cash flow = money entering/leaving a system. The visual must teach before any editor-added text.
+
+## SECTION 6 — CHANNEL STYLE IS A VARIABLE
+
+Use ONLY the supplied channel visual style instructions and character bible. Do not hardcode any art style. The workflow must work across nature, health, science, history, finance, business, documentary, and educational genres. Preserve recurring characters, environments, and objects.
+
+## SECTION 7 — THE TWO OUTPUT DOCUMENTS
+
+Output exactly two documents, in this order. **Document 2 comes FIRST** (it is the irreplaceable assembler artifact; the sheet in Document 1 is derived from it — if truncation ever hits, the JSON survives and the sheet can be rebuilt).
+
+### DOCUMENT 2 (output first) — shotlist.json
+
+Raw JSON. No fences, no commentary. Exactly this shape:
+
+```
+{
+  "style": "<MASTER PROMPT: all constant instructions — art style, palette, rendering quality, line treatment, tone, text policy, character continuity, recurring objects. Individual prompts must not repeat any of this.>",
+  "shots": [
+    { "cues": "7-9", "asset": "S01_03_SCN_PR.png", "scene": "S01", "motion": "PR" },
+    { "cues": "10-12", "asset": "S01_04_INF_ST.png", "scene": "S01", "motion": "ST", "transition": "CROSSFADE" }
+  ],
+  "images": [
+    { "file": "S01_03_SCN_PR.png", "prompt": "<content only, under 20 words>" }
+  ]
+}
+```
+
+- `shots` FIRST, `images` SECOND.
+- `cues`: `"7"`, `"7-9"`, or `[7,8,9]`. **HARD: every cue from 1 to the last must be covered exactly once — no gaps, no overlaps.** The last shot must end at the final cue.
+- `asset`: exact filename (new or reused). `scene`: the main beat id (S01...). `shot_id`, `framing`, `start_ms`: do not include — the assembler derives or owns them.
+- `motion`: ST | ZI | ZO | PL | PR | PU | PD | PV — chosen for the composition, never cycled mechanically.
+- `transition`: omit for cuts (default). Allowed values: CROSSFADE, DIP, DIP_WHITE. Use sparingly — at main-beat boundaries. Omit on the LAST shot entirely.
+- `images` contains ONLY new files (one entry each, no duplicates). Reused shots do not appear here.
+- Do not include: master_prompt, beats, subbeats, summaries, narration_text, framing, start_ms/end_ms, video/fps/schema_version — the assembler derives or ignores all of them, and they waste your output budget.
+
+### DOCUMENT 1 (output second) — IMAGE BATCH SHEET
+
+Readable text for the batch image app, built by copying from the JSON (no new authoring):
+
+```
+=== DOCUMENT 1: IMAGE BATCH SHEET ===
+
+=== MASTER PROMPT ===
+<the full style string from the JSON>
+
+=== CANVAS SPEC (by motion code in the filename) ===
+ST/ZI/ZO: 2304x1296 · PL/PR: 2880x1296 (subject left third for PR, right third for PL) · PU/PD: 2304x2160 · PV: 3840x1296
+Larger canvases are fine if the aspect and overscan direction are preserved. Always 8-bit RGB or RGBA with a solid (white) background — no transparency.
+
+=== S01 ===
+S01_01_SCN_ZI.png [2304x1296] — <prompt from images[]>
+S01_02_CU_ST.png [2304x1296] — <prompt>
+
+=== S02 ===
+...
+```
+
+Group by main beat, in beat order. One line per image: filename, canvas, prompt. Every image in the JSON appears here exactly once.
+
+## SECTION 8 — TEXT INSIDE IMAGES
+
+Follow the supplied channel text policy. If the project says no generated text: no readable words, numbers, labels, percentages, titles, captions, letters, or signage. Communicate through icons, arrows, shapes, pictograms, relative size, grouping, quantity, and visual metaphor.
+
+## SECTION 9 — FILENAMING
+
+`S##_##_TYPE_MOTION.png` — main beat, sub-beat, TYPE code, MOTION code. Example: `S04_03_INF_ST.png`. Sequential sub-beat numbering per beat, uppercase codes, `.png` lowercase. Every generated filename is unique. Reused shots reference the exact existing filename.
+
+## SECTION 10 — TIMING
+
+All timing derives from the SRT. A shot begins when its visual idea begins and ends when the narration moves to the next visual idea. You never write timings — the cue ranges carry them, and the assembler converts cues to frame-exact edit points, fixes gaps, and aligns the tail to the audio.
+
+## SECTION 11 — OUTPUT SAFETY
+
+If you approach your output limit: stop after the last COMPLETE entry, close all brackets cleanly, end the message, then continue in the next message with only the missing content. Never end mid-token — a file ending like `"asset": "S03_15_CU_ST` is a hard failure.
+
+## SECTION 12 — FINAL VALIDATION CHECKLIST
+
+Before output, verify:
+1. Every cue 1..N covered exactly once, in order, no gaps or overlaps.
+2. Grouping by visual idea (list items, body parts, rephrasings share images).
+3. Reuse decisions are content-driven; every `images[]` entry is used by at least one shot; every `asset` exists in `images[]`.
+4. Filenames match `S##_##_TYPE_MOTION.png`; all unique; types and motions from the code tables.
+5. Motions match composition (overscan direction); transitions only CROSSFADE/DIP/DIP_WHITE, sparingly, never on the last shot.
+6. Prompts under 20 words, content only; style lives only in the `style` field.
+7. Document 2 (JSON) output first, raw and complete; Document 1 second, grouped by beat, master prompt on top.
