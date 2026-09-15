@@ -29,13 +29,48 @@ See [docs/generation-spec.md](docs/generation-spec.md) for the image generation 
   vertical pans PU/PD, legacy names still parse; type codes and motion codes are independently
   toggleable in Settings > File naming
 - Requires ffmpeg/ffprobe on PATH (or set in Settings); install with `winget install Gyan.FFmpeg`
+- Final render: RENDER FINAL produces `out\final\final.mp4` at project resolution
+  with Final preset/CRF, plus `captions.srt` — drop both into CapCut (CapCut tier 1).
+  Encoder `auto` probes for NVENC/AMF/QSV and falls back to libx264
 - Manual spikes pending: phase 0 (import exported XML into Premiere, verify keyframes — fallback
   is `IncludeMotionKeyframes = false`), phase 0b (CapCut draft study)
-- Next: CapCut tier 1/2 exporters, build-report.json, final-quality render option
+- Next: CapCut tier 2 draft exporter (spike-gated), headless CLI batch builds, batch image runner
 
 ## Build
 
 ```
-dotnet build ImgToVideo.sln
-dotnet test ImgToVideo.sln
+dotnet build ImgToVideo.slnx
+dotnet test ImgToVideo.slnx
 ```
+
+## Batch image generation
+
+Headless runner that turns a project's `shotlist.json` into `images\` in one command
+(nano banana / Gemini image API):
+
+```
+dotnet run --project src/ImgToVideo.ImageGen -- <projectFolder> [--parallel 2] [--force] [--dry-run]
+```
+
+- Reads `images[]` (file → prompt) and the master `style` from `shotlist.json`
+- Saves each image under its exact planned filename; existing files are skipped, so
+  re-running only fills the gaps (`--force` regenerates everything)
+- Retries rate limits/server errors with backoff; billing-exhausted keys fail fast
+- Writes `out\image-review.html` — a contact sheet with filename, prompt and status per image
+- API key comes from the `GEMINI_API_KEY` environment variable (or `--api-key`)
+
+**Renderly mode** — route generation through a running
+[Renderly](../../Renderly) backend instead of calling Gemini directly:
+
+```
+dotnet run --project src/ImgToVideo.ImageGen -- <projectFolder> ^
+  --renderly http://127.0.0.1:8022 --channel 1 --image-size 1K --upscale 4 --ref-asset 12,13
+```
+
+- Generation lands in Renderly's channel history with per-file names; the finished
+  image is downloaded into `images\` automatically
+- `--image-size 1K` (default, cheap) then `--upscale 4` runs Renderly's local
+  Real-ESRGAN GPU upscale — 4K-class images for pennies
+- `--ref-asset <ids>` sends channel reference assets with every prompt
+  (recurring character / style consistency)
+- Uses Renderly's own API key; no `GEMINI_API_KEY` needed in this mode

@@ -1,6 +1,7 @@
 <Window x:Class="ImgToVideo.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="imgtovideo_icon.ico"
         Title="ImgToVideo — Video Assembler"
         Height="680" Width="900"
         MinHeight="560" MinWidth="760"

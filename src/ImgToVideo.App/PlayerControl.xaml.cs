@@ -8,8 +8,11 @@ namespace ImgToVideo.App;
 public partial class PlayerControl : UserControl
 {
     private readonly DispatcherTimer _timer;
+    private readonly DispatcherTimer _scrubTimer;
     private bool _isPlaying;
     private bool _isSeeking;
+    private bool _isScrubbing;
+    private double? _pendingScrubSeconds;
     private bool _suppressPositionEvents;
     private double _lastLiveSeekSeconds = -1;
 
@@ -42,6 +45,8 @@ public partial class PlayerControl : UserControl
         InitializeComponent();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _timer.Tick += (_, _) => UpdatePositionUi();
+        _scrubTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        _scrubTimer.Tick += ApplyPendingScrub;
 
         Loaded += (_, _) =>
         {
@@ -83,6 +88,10 @@ public partial class PlayerControl : UserControl
     public void StopAndRelease()
     {
         _timer.Stop();
+        _scrubTimer.Stop();
+        _isScrubbing = false;
+        _pendingScrubSeconds = null;
+        Player.ScrubbingEnabled = false;
         _isSeeking = false;
         try
         {
@@ -172,11 +181,13 @@ public partial class PlayerControl : UserControl
     {
         _isSeeking = true;
         PausePlayback();
+        Player.ScrubbingEnabled = true;
     }
 
     private void SldPosition_DragCompleted(object sender, DragCompletedEventArgs e)
     {
         _isSeeking = false;
+        Player.ScrubbingEnabled = false;
         SeekTo(SldPosition.Value);
         UpdatePositionUi();
     }
@@ -218,6 +229,67 @@ public partial class PlayerControl : UserControl
         }
     }
 
+    /// <summary>Starts a scrub: paused playback with frame-accurate repaints and coalesced seeks.</summary>
+    public void BeginScrub()
+    {
+        if (CurrentPath is null)
+        {
+            return;
+        }
+
+        PausePlayback();
+        Player.ScrubbingEnabled = true;
+        _isScrubbing = true;
+    }
+
+    /// <summary>Coalesces scrub seeks so a fast drag repaints smoothly instead of queueing seeks.</summary>
+    public void ScrubToSeconds(double seconds)
+    {
+        if (!_isScrubbing)
+        {
+            SeekToSeconds(seconds);
+            return;
+        }
+
+        _pendingScrubSeconds = Math.Max(0, seconds);
+        if (!_scrubTimer.IsEnabled)
+        {
+            _scrubTimer.Start();
+        }
+    }
+
+    /// <summary>Ends the scrub and lands exactly on the last requested position.</summary>
+    public void EndScrub()
+    {
+        if (!_isScrubbing)
+        {
+            return;
+        }
+
+        _isScrubbing = false;
+        Player.ScrubbingEnabled = false;
+        ApplyPendingScrub(this, EventArgs.Empty);
+    }
+
+    private void ApplyPendingScrub(object? sender, EventArgs e)
+    {
+        _scrubTimer.Stop();
+        if (_pendingScrubSeconds is not { } seconds)
+        {
+            return;
+        }
+
+        _pendingScrubSeconds = null;
+        try
+        {
+            Player.Position = TimeSpan.FromSeconds(seconds);
+            UpdatePositionUi();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
     private void SldPosition_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_suppressPositionEvents)
@@ -230,7 +302,7 @@ public partial class PlayerControl : UserControl
             var seconds = Math.Max(0, e.NewValue);
             UpdateTimeLabel(TimeSpan.FromSeconds(seconds));
             PositionChanged?.Invoke(this, seconds);
-            if (Math.Abs(seconds - _lastLiveSeekSeconds) >= 0.2)
+            if (Math.Abs(seconds - _lastLiveSeekSeconds) >= 0.1)
             {
                 _lastLiveSeekSeconds = seconds;
                 SeekTo(seconds);

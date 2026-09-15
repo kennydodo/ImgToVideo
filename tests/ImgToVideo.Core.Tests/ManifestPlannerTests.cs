@@ -297,4 +297,81 @@ public class ManifestPlannerTests
         Assert.Equal(405, timeline.Scenes[0].Clips.Sum(c => c.DurationFrames));
         Assert.Equal(101, timeline.Scenes[0].Clips[3].DurationFrames);
     }
+
+    private static VisualManifest GapManifest(long[][] shots) => new(
+        "1.0",
+        new VisualManifestVideo("gap-test", "Gap Test", 60000, 30),
+        [
+            new VisualAsset("IMG001", "S01_B01_01.png", "S01", ["B01"], "closeup",
+                ["STATIC"], false, null),
+            new VisualAsset("IMG002", "S01_B02_01.png", "S01", ["B02"], "lifestyle",
+                ["STATIC"], false, null),
+        ],
+        shots.Select((s, i) => new VisualShot(
+            $"SH{i + 1:000}", s[0], s[1], "S01", $"B{i + 1:00}", [i + 1],
+            $"Narration {i + 1}.", "new_point", "new_claim",
+            i == 0 ? "IMG001" : "IMG002",
+            new VisualFraming("wide", null),
+            new VisualMotion("STATIC", null, null, null),
+            new VisualTransition("CUT", 0))).ToList());
+
+    [Fact]
+    public void Narration_pause_between_shots_is_held_by_the_previous_shot()
+    {
+        // SH001 cues 0-3.0s, SH002 cues 3.6-6.0s: the 0.6s pause belongs to SH001's
+        // image and SH002 appears exactly when its narration begins.
+        var (timeline, _, issues) = Plan(GapManifest([
+            [0, 3000],
+            [3600, 6000],
+        ]), audioFrames: 180);
+
+        var clips = timeline.Scenes[0].Clips;
+        Assert.Equal(2, clips.Count);
+        Assert.Equal(0, clips[0].StartFrame);
+        Assert.Equal(108, clips[0].DurationFrames);   // 90 frames + 18-frame pause hold
+        Assert.Equal(108, clips[1].StartFrame);
+        Assert.Equal(72, clips[1].DurationFrames);
+        Assert.Equal(180, clips.Sum(c => c.DurationFrames));
+        Assert.Contains(issues, i => i.Code == "MANIFEST_TIMING_FIXED" &&
+            i.Severity == ValidationSeverity.Info &&
+            i.Message.Contains("Narration pause of 0.6s"));
+    }
+
+    [Fact]
+    public void Lead_in_silence_extends_the_first_shot()
+    {
+        // SH001 cues 0.6-3.0s: the first image covers from 0.
+        var (timeline, _, issues) = Plan(GapManifest([
+            [600, 3000],
+            [3000, 6000],
+        ]), audioFrames: 180);
+
+        var clips = timeline.Scenes[0].Clips;
+        Assert.Equal(0, clips[0].StartFrame);
+        Assert.Equal(90, clips[0].DurationFrames);    // 72 frames + 18-frame lead-in
+        Assert.Equal(90, clips[1].StartFrame);
+        Assert.Equal(90, clips[1].DurationFrames);
+        Assert.Equal(180, clips.Sum(c => c.DurationFrames));
+        Assert.Contains(issues, i => i.Code == "MANIFEST_TIMING_FIXED" &&
+            i.Message.Contains("extended to cover from 0"));
+    }
+
+    [Fact]
+    public void Overlapping_shot_windows_are_clamped()
+    {
+        // SH002 starts at 2.7s while SH001 runs to 3.0s: clamped with a warning.
+        var (timeline, _, issues) = Plan(GapManifest([
+            [0, 3000],
+            [2700, 6000],
+        ]), audioFrames: 180);
+
+        var clips = timeline.Scenes[0].Clips;
+        Assert.Equal(90, clips[0].DurationFrames);
+        Assert.Equal(90, clips[1].StartFrame);
+        Assert.Equal(90, clips[1].DurationFrames);
+        Assert.Equal(180, clips.Sum(c => c.DurationFrames));
+        Assert.Contains(issues, i => i.Code == "MANIFEST_TIMING_FIXED" &&
+            i.Severity == ValidationSeverity.Warning &&
+            i.Message.Contains("Overlap before shot"));
+    }
 }

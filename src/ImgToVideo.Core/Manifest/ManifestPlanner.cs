@@ -139,7 +139,8 @@ public static class ManifestPlanner
             return new ManifestPlanResult(null, null, issues);
         }
 
-        // Quantize to frames, enforce contiguity, and pin the tail to the audio length.
+        // Quantize to frames, hold narration pauses on the previous shot (tiling, like
+        // the v1 scene inference), and pin the tail to the audio length.
         var clips = new List<(VideoClip Clip, VisualAsset Asset)>();
         long cursor = 0;
         for (var i = 0; i < planned.Count; i++)
@@ -147,33 +148,42 @@ public static class ManifestPlanner
             var (shot, asset, image) = planned[i];
             var start = (long)Math.Round(shot.StartMs * fps / 1000.0);
             var end = (long)Math.Round(shot.EndMs * fps / 1000.0);
-            var duration = end - start;
+            var duration = Math.Max(1, end - start);
 
             if (i == 0 && start > 0)
             {
+                // Lead-in silence before the first cue belongs to the first image.
                 issues.Add(new ValidationIssue(
-                    ValidationSeverity.Warning, "MANIFEST_TIMING_FIXED",
+                    ValidationSeverity.Info, "MANIFEST_TIMING_FIXED",
                     $"Manifest timeline started at frame {start}; the first shot was extended to cover from 0."));
+                duration += start;
                 start = 0;
             }
 
-            if (i > 0 && start != cursor)
+            if (i > 0 && start > cursor)
             {
-                if (Math.Abs(start - cursor) <= 2)
+                // Narration pause between shots: the previous image holds through it
+                // and this shot starts exactly when its cue begins.
+                var gap = start - cursor;
+                if (gap > 2)
                 {
                     issues.Add(new ValidationIssue(
-                        ValidationSeverity.Info, "MANIFEST_TIMING_SNAPPED",
-                        $"Shot \"{shot.ShotId}\" start snapped to frame {cursor} " +
-                        $"(drift {start - cursor:+0;-0} frames)."));
-                }
-                else
-                {
-                    issues.Add(new ValidationIssue(
-                        ValidationSeverity.Warning, "MANIFEST_TIMING_FIXED",
-                        $"Gap/overlap before shot \"{shot.ShotId}\" ({start - cursor:+0;-0} frames) " +
-                        "was closed by adjusting the previous shot."));
+                        ValidationSeverity.Info, "MANIFEST_TIMING_FIXED",
+                        $"Narration pause of {gap / (double)fps:0.##}s before shot \"{shot.ShotId}\" " +
+                        "is held by the previous shot."));
                 }
 
+                clips[^1].Clip.DurationFrames += gap;
+                cursor = start;
+            }
+            else if (i > 0 && start < cursor)
+            {
+                // Overlapping cue ranges: clamp this shot to the previous shot's end.
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "MANIFEST_TIMING_FIXED",
+                    $"Overlap before shot \"{shot.ShotId}\" ({cursor - start:+0;-0} frames) " +
+                    "was closed by clamping to the previous shot."));
+                duration = Math.Max(1, duration - (cursor - start));
                 start = cursor;
             }
 
@@ -236,6 +246,18 @@ public static class ManifestPlanner
             cursorFrames += clip.DurationFrames;
         }
 
+        // Per-shot audit: cue coverage and the final on-screen window for every shot.
+        for (var i = 0; i < clips.Count; i++)
+        {
+            var clip = clips[i].Clip;
+            var shot = planned[i].Shot;
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Info, "SHOT_TIMING",
+                $"Shot \"{shot.ShotId}\" ({clip.SceneId}) · cues {FormatCues(shot.SrtCueIds)} · " +
+                $"{FormatMs(clip.StartFrame * 1000.0 / fps)} → {FormatMs((clip.StartFrame + clip.DurationFrames) * 1000.0 / fps)} " +
+                $"({clip.DurationFrames / (double)fps:F1} s) · \"{TruncateNarration(shot.NarrationText)}\""));
+        }
+
         // Group consecutive shots with the same scene id into timeline scenes.
         var timeline = new Timeline
         {
@@ -278,6 +300,52 @@ public static class ManifestPlanner
             pendingDropMs += durationMs;
         }
         _ = dropped;
+    }
+
+    private static string FormatCues(IReadOnlyList<int>? cues)
+    {
+        if (cues is null || cues.Count == 0)
+        {
+            return "?";
+        }
+
+        var ordered = cues.Distinct().OrderBy(c => c).ToList();
+        var parts = new List<string>();
+        var runStart = ordered[0];
+        var runEnd = runStart;
+        for (var i = 1; i <= ordered.Count; i++)
+        {
+            if (i < ordered.Count && ordered[i] == runEnd + 1)
+            {
+                runEnd = ordered[i];
+                continue;
+            }
+
+            parts.Add(runStart == runEnd ? $"{runStart}" : $"{runStart}-{runEnd}");
+            if (i < ordered.Count)
+            {
+                runStart = runEnd = ordered[i];
+            }
+        }
+
+        return string.Join(", ", parts);
+    }
+
+    private static string FormatMs(double ms)
+    {
+        var total = (long)Math.Round(ms);
+        return $"{(int)(total / 60000)}:{total / 1000 % 60:00}.{total % 1000:000}";
+    }
+
+    private static string TruncateNarration(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "—";
+        }
+
+        var clean = text.Trim();
+        return clean.Length <= 90 ? clean : clean[..90] + "…";
     }
 
     private static VideoClip BuildClip(

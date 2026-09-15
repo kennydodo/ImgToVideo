@@ -38,6 +38,26 @@ public class ShotListTests
             issues ?? []);
 
     [Fact]
+    public void Style_field_is_captured_and_prompts_keep_empty_entries()
+    {
+        var (document, issues) = Parse(
+            """
+            {"style": "Warm documentary photo style",
+             "images": [
+               {"file": "S01_01_SCN.png", "prompt": "A walker at dawn."},
+               {"file": "S01_02_CU_ZI.png"}
+             ],
+             "shots": [{"cues": "1", "asset": "S01_01_SCN.png"}]}
+            """);
+
+        Assert.Equal("Warm documentary photo style", document.Style);
+        Assert.Equal(2, document.Prompts.Count);
+        Assert.Equal("A walker at dawn.", document.Prompts["S01_01_SCN.png"]);
+        Assert.Equal(string.Empty, document.Prompts["S01_02_CU_ZI.png"]);
+        Assert.DoesNotContain(issues, i => i.Severity == ValidationSeverity.Error);
+    }
+
+    [Fact]
     public void Cue_ranges_derive_timing_narration_and_defaults()
     {
         var manifest = Expand(

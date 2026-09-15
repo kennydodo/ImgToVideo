@@ -1,6 +1,7 @@
 <Window x:Class="ImgToVideo.App.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="imgtovideo_icon.ico"
         Title="ImgToVideo — Settings"
         Height="640" Width="560"
         MinHeight="520" MinWidth="480"

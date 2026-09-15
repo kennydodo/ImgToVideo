@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:ImgToVideo.App"
+        Icon="imgtovideo_icon.ico"
         Title="ImgToVideo — Scene Editor"
         Height="760" Width="1060"
         MinHeight="560" MinWidth="920"
@@ -206,7 +207,50 @@
                             ToolTip="Open the current preview in a floating window"
                             Click="BtnUndock_Click"/>
                 </StackPanel>
-                <local:PlayerControl Grid.Row="1" x:Name="PlayerHost" Margin="10,8,10,0"/>
+                <Grid Grid.Row="1" Margin="10,8,10,0">
+                    <local:PlayerControl x:Name="PlayerHost"/>
+                    <Border x:Name="TrimPreviewHost"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Margin="0,0,10,10"
+                            Background="{StaticResource BrushPanel}"
+                            BorderBrush="{StaticResource BrushBorderSubtle}"
+                            BorderThickness="1" CornerRadius="6" Padding="10,8,10,10">
+                        <StackPanel>
+                            <TextBlock x:Name="TxtTrimHeader" FontSize="10.5"
+                                       Foreground="{StaticResource BrushTextSecondary}"/>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock x:Name="TxtTrimOut" FontSize="10" MaxWidth="192"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource BrushTextTertiary}"/>
+                                    <Border Width="192" Height="108" Margin="0,3,0,0"
+                                            Background="Black" CornerRadius="3" ClipToBounds="True">
+                                        <Image x:Name="TrimOutImage" Stretch="None"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                                               RenderOptions.BitmapScalingMode="Fant"/>
+                                    </Border>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock x:Name="TxtTrimIn" FontSize="10" MaxWidth="192"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource BrushTextTertiary}"/>
+                                    <Border Width="192" Height="108" Margin="0,3,0,0"
+                                            Background="Black" CornerRadius="3" ClipToBounds="True">
+                                        <Image x:Name="TrimInImage" Stretch="None"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                                               RenderOptions.BitmapScalingMode="Fant"/>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
                 <Border Grid.Row="2" Background="{StaticResource BrushRecessed}"
                         BorderBrush="{StaticResource BrushBorderSubtle}"
                         BorderThickness="1" CornerRadius="4" Padding="6" Margin="10,8,10,10">
@@ -214,7 +258,7 @@
                         <Grid x:Name="StripGrid" Height="36" MinHeight="36"/>
                         <TextBlock FontSize="10.5" Margin="0,4,0,0"
                                    Foreground="{StaticResource BrushTextTertiary}"
-                                   Text="Timeline strip — each block is one shot, sized by its frames. Drag the handle between blocks to move the cut; the accent outline follows playback."/>
+                                   Text="Timeline strip — each block is one shot, sized by its frames. Drag the handle between blocks to move the cut; a live trim preview shows the outgoing and incoming frames while you drag."/>
                     </StackPanel>
                 </Border>
             </Grid>

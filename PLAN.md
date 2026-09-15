@@ -244,7 +244,7 @@ spans its whole hold window. Provide `scenes.json` when you want narration-ancho
 |---|---|
 | **ERROR** | Missing/unparsable audio; unparsable SRT; zero images; scene with zero images; scene over-packed beyond 2.0 s floor; ffmpeg/ffprobe not found; timeline ≠ audio duration (planner bug) |
 | **WARNING** | Scene density below min; hold longer than max; duplicate stems; unknown motion suffix; `scenes.json` overlaps/gaps; image smaller than code minimum; PR/PL file with normal-composition width; non-16:9 aspect; SRT extends past audio; images matching no scene; non-PNG inputs |
-| **INFO** | Static shot inserted; explicit-code clips (audit list); per-scene density summary; floor-shrink adjustments |
+| **INFO** | Static shot inserted; explicit-code clips (audit list); per-scene density summary; floor-shrink adjustments; per-shot SRT cue → exact-time audit with narration text (manifest shots) |
 
 Only ERROR blocks a build. Messages always include the file path and an actionable fix.
 

@@ -7,18 +7,22 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using ImgToVideo.Core.Analysis;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Motion;
 using ImgToVideo.Core.Options;
 using ImgToVideo.Core.Overrides;
 using ImgToVideo.Ffmpeg;
+using Rect = ImgToVideo.Core.Models.Rect;
 
 namespace ImgToVideo.App;
 
 public partial class SceneEditorWindow : Window
 {
     private const double MaxNudgeFrames = 120;
+    private const double TrimBoxWidth = 256;
+    private const double TrimBoxHeight = 144;
 
     public sealed class ClipRow : INotifyPropertyChanged
     {
@@ -100,6 +104,7 @@ public partial class SceneEditorWindow : Window
     private int _stripDragColumn;
     private double _stripDragAccum;
     private bool _stripDragging;
+    private readonly Dictionary<string, BitmapSource> _trimBitmaps = new(StringComparer.OrdinalIgnoreCase);
 
     public bool Saved => _saved;
 
@@ -284,6 +289,7 @@ public partial class SceneEditorWindow : Window
                           (TryParseFrames(right.Duration, out var n) && n > 0 ? n : 1);
         _stripDragging = true;
         PlayerHost.PausePlayback();
+        PlayerHost.BeginScrub();
         handle.CaptureMouse();
         handle.Background = TryFindResource("BrushAccent") as Brush;
         e.Handled = true;
@@ -303,6 +309,10 @@ public partial class SceneEditorWindow : Window
         ApplyStripBoundary(Math.Clamp(
             (long)Math.Round(px / StripGrid.ActualWidth * _stripDragTotal),
             1, Math.Max(1, _stripDragTotal - 1)));
+        if (TrimPreviewHost.Visibility != Visibility.Visible)
+        {
+            UpdateTrimPreview();
+        }
     }
 
     private void ApplyStripBoundary(long boundary)
@@ -320,15 +330,7 @@ public partial class SceneEditorWindow : Window
             new GridLength(boundary, GridUnitType.Star);
         StripGrid.ColumnDefinitions[_stripDragColumn + 1].Width =
             new GridLength(_stripDragTotal - boundary, GridUnitType.Star);
-
-        // Live preview: park the player on the frame where the cut now sits.
-        var prefix = 0L;
-        for (var k = 0; k < _stripDragColumn; k++)
-        {
-            prefix += TryParseFrames(_stripVisibleRows[k].Duration, out var f) && f > 0 ? f : 0;
-        }
-
-        PlayerHost.SeekToSeconds((prefix + boundary) / _options.Output.Fps);
+        UpdateTrimPreview();
     }
 
     private void StripHandle_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -338,8 +340,195 @@ public partial class SceneEditorWindow : Window
             handle.ReleaseMouseCapture();
             handle.Background = TryFindResource("BrushSecondaryBorder") as Brush;
             _stripDragging = false;
+            TrimPreviewHost.Visibility = Visibility.Collapsed;
             RefreshStrip();
+            PlayerHost.EndScrub();
+            _stripDragRow = null;
+            _stripDragNext = null;
             e.Handled = true;
+        }
+    }
+
+    private void UpdateTrimPreview()
+    {
+        if (_stripDragRow is not { } left || _stripDragNext is not { } right)
+        {
+            return;
+        }
+
+        var boundary = TryParseFrames(left.Duration, out var frames) && frames > 0 ? frames : 1;
+        var outgoing = TryRenderTrimSide(TrimOutImage, TxtTrimOut, left, Math.Max(0, boundary - 1));
+        var incoming = TryRenderTrimSide(TrimInImage, TxtTrimIn, right, 0);
+        if (!outgoing && !incoming)
+        {
+            TrimPreviewHost.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        TrimPreviewHost.Visibility = Visibility.Visible;
+        TxtTrimHeader.Text =
+            $"Cut @ {FormatTimecode((left.StartFrame + boundary) / _options.Output.Fps)} — outgoing last frame · incoming first frame";
+        ScrubMediaToCut();
+    }
+
+    /// <summary>Scrubs the loaded preview to the moving cut so the video follows the drag.</summary>
+    private void ScrubMediaToCut()
+    {
+        if (_stripDragRow is not { } row || _stripDragColumn >= _stripVisibleRows.Count)
+        {
+            return;
+        }
+
+        var prefix = 0L;
+        for (var k = 0; k < _stripDragColumn; k++)
+        {
+            prefix += TryParseFrames(_stripVisibleRows[k].Duration, out var frames) && frames > 0 ? frames : 0;
+        }
+
+        var boundary = TryParseFrames(row.Duration, out var parsed) && parsed > 0 ? parsed : 1;
+        PlayerHost.ScrubToSeconds((prefix + boundary) / _options.Output.Fps);
+    }
+
+    private bool TryRenderTrimSide(Image target, TextBlock label, ClipRow row, long frame)
+    {
+        if (ResolveRow(row) is not { } resolved)
+        {
+            target.Source = null;
+            label.Text = $"{row.Display} — unavailable";
+            return false;
+        }
+
+        var (clip, image) = resolved;
+        if (GetTrimBitmap(image.FilePath) is not { } source)
+        {
+            target.Source = null;
+            label.Text = $"{row.Display} — unreadable image";
+            return false;
+        }
+
+        var planned = BuildPreviewClip(row, clip, image.Width, image.Height);
+        var outAspect = (double)_options.Output.Width / _options.Output.Height;
+        var startAspect = planned.StartViewport.Width / planned.StartViewport.Height;
+        var endAspect = planned.EndViewport.Width / planned.EndViewport.Height;
+        var letterbox = Math.Abs(startAspect - outAspect) > 0.02 ||
+                        Math.Abs(endAspect - outAspect) > 0.02;
+        var imageBounds = new Rect(0, 0, image.Width, image.Height);
+        var standard = !letterbox &&
+                       planned.StartViewport.IsInside(imageBounds) &&
+                       planned.EndViewport.IsInside(imageBounds);
+        var canvas = new Rect(0, 0, 0, 0);
+        if (!letterbox && !standard)
+        {
+            var canvasWidth = Even(Math.Max(
+                Math.Max(planned.StartViewport.Right, planned.EndViewport.Right), image.Width));
+            var canvasHeight = Even(Math.Max(
+                Math.Max(planned.StartViewport.Bottom, planned.EndViewport.Bottom), image.Height));
+            canvas = new Rect(
+                (canvasWidth - image.Width) / 2.0,
+                (canvasHeight - image.Height) / 2.0,
+                canvasWidth, canvasHeight);
+        }
+
+        double scale;
+        double offsetX;
+        double offsetY;
+        if (letterbox)
+        {
+            scale = Math.Min(TrimBoxWidth / source.PixelWidth, TrimBoxHeight / source.PixelHeight);
+            offsetX = (TrimBoxWidth - source.PixelWidth * scale) / 2.0;
+            offsetY = (TrimBoxHeight - source.PixelHeight * scale) / 2.0;
+        }
+        else
+        {
+            var viewport = ClampViewport(
+                ViewportAt(planned, frame),
+                standard ? image.Width : canvas.Width,
+                standard ? image.Height : canvas.Height);
+            scale = TrimBoxWidth / viewport.Width;
+            offsetX = ((standard ? 0 : canvas.X) - viewport.X) * scale;
+            offsetY = ((standard ? 0 : canvas.Y) - viewport.Y) * scale;
+        }
+
+        target.Width = source.PixelWidth;
+        target.Height = source.PixelHeight;
+        target.Source = source;
+        target.RenderTransform = new TransformGroup
+        {
+            Children =
+            {
+                new ScaleTransform(scale, scale),
+                new TranslateTransform(offsetX, offsetY),
+            },
+        };
+        label.Text = frame == 0
+            ? $"{row.Display} — first frame"
+            : $"{row.Display} — frame {frame + 1}/{planned.DurationFrames}";
+        return true;
+    }
+
+    /// <summary>Mirrors the renderer's zoompan math: the viewport at a frame of the clip.</summary>
+    private static Rect ViewportAt(VideoClip clip, long frame)
+    {
+        var duration = Math.Max(1, clip.DurationFrames);
+        var steps = duration > 1 ? duration - 1 : 1;
+        var motionSteps = clip.MotionDurationFrames is { } motionEnd && motionEnd > 1
+            ? Math.Max(1, Math.Min(motionEnd - 1, steps))
+            : steps;
+        var progress = (double)frame / motionSteps;
+        if (motionSteps != steps)
+        {
+            progress = Math.Min(1, progress);
+        }
+
+        progress = Math.Clamp(progress, 0, 1);
+        progress = clip.Easing switch
+        {
+            EasingMode.EaseIn => progress * progress,
+            EasingMode.EaseOut => 1 - (1 - progress) * (1 - progress),
+            EasingMode.EaseInOut => progress * progress * progress * (progress * (progress * 6 - 15) + 10),
+            _ => progress,
+        };
+
+        var start = clip.StartViewport;
+        var end = clip.EndViewport;
+        var width = start.Width + (end.Width - start.Width) * progress;
+        var height = start.Height + (end.Height - start.Height) * progress;
+        var centerX = start.X + start.Width / 2.0 + (end.X - start.X) * progress;
+        var centerY = start.Y + start.Height / 2.0 + (end.Y - start.Y) * progress;
+        return new Rect(centerX - width / 2.0, centerY - height / 2.0, width, height);
+    }
+
+    private static Rect ClampViewport(Rect viewport, double spaceWidth, double spaceHeight)
+    {
+        var x = Math.Clamp(viewport.X, 0, Math.Max(0, spaceWidth - viewport.Width));
+        var y = Math.Clamp(viewport.Y, 0, Math.Max(0, spaceHeight - viewport.Height));
+        return new Rect(x, y, viewport.Width, viewport.Height);
+    }
+
+    private static long Even(double value) =>
+        (long)Math.Round(value / 2, MidpointRounding.AwayFromZero) * 2;
+
+    private BitmapSource? GetTrimBitmap(string path)
+    {
+        if (_trimBitmaps.TryGetValue(path, out var cached))
+        {
+            return cached;
+        }
+
+        try
+        {
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.UriSource = new Uri(path);
+            bitmap.EndInit();
+            bitmap.Freeze();
+            _trimBitmaps[path] = bitmap;
+            return bitmap;
+        }
+        catch (Exception ex) when (ex is IOException or NotSupportedException or UriFormatException)
+        {
+            return null;
         }
     }
 

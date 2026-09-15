@@ -22,7 +22,8 @@ public sealed record ShotListEntry(
 
 public sealed record ShotListDocument(
     IReadOnlyList<ShotListEntry> Shots,
-    IReadOnlyDictionary<string, string> Prompts);
+    IReadOnlyDictionary<string, string> Prompts,
+    string? Style = null);
 
 public static class ShotListParser
 {
@@ -44,6 +45,14 @@ public static class ShotListParser
         }
 
         var prompts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string? style = null;
+        if (root.TryGetProperty("style", out var styleElement) &&
+            styleElement.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(styleElement.GetString()))
+        {
+            style = styleElement.GetString()!.Trim();
+        }
+
         if (root.TryGetProperty("images", out var imagesElement) &&
             imagesElement.ValueKind == JsonValueKind.Array)
         {
@@ -62,12 +71,15 @@ public static class ShotListParser
                     continue;
                 }
 
+                var prompt = string.Empty;
                 if (image.TryGetProperty("prompt", out var promptElement) &&
                     promptElement.ValueKind == JsonValueKind.String &&
                     !string.IsNullOrWhiteSpace(promptElement.GetString()))
                 {
-                    prompts.TryAdd(fileElement.GetString()!.Trim(), promptElement.GetString()!.Trim());
+                    prompt = promptElement.GetString()!.Trim();
                 }
+
+                prompts.TryAdd(fileElement.GetString()!.Trim(), prompt);
             }
         }
 
@@ -114,7 +126,7 @@ public static class ShotListParser
                 GetString(shot, "scene")));
         }
 
-        return new ShotListDocument(entries, prompts);
+        return new ShotListDocument(entries, prompts, style);
     }
 
     private static bool TryGetCues(JsonElement shot, out int firstCue, out int lastCue)

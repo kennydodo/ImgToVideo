@@ -3,6 +3,7 @@
     <Project Path="src/ImgToVideo.App/ImgToVideo.App.csproj" />
     <Project Path="src/ImgToVideo.Core/ImgToVideo.Core.csproj" />
     <Project Path="src/ImgToVideo.Ffmpeg/ImgToVideo.Ffmpeg.csproj" />
+    <Project Path="src/ImgToVideo.ImageGen/ImgToVideo.ImageGen.csproj" />
     <Project Path="src/ImgToVideo.Premiere/ImgToVideo.Premiere.csproj" />
   </Folder>
   <Folder Name="/tests/">
