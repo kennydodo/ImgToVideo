@@ -63,6 +63,16 @@ public static class ToolLocator
 
     private static IEnumerable<string> FallbackDirectories(string executableName)
     {
+        // Tools shipped with the app (portable / installer builds): next to the exe,
+        // or in an "ffmpeg" subfolder of the install directory.
+        var appBase = AppContext.BaseDirectory;
+        if (appBase.Length > 0)
+        {
+            yield return appBase;
+            yield return Path.Combine(appBase, "ffmpeg");
+            yield return Path.Combine(appBase, "tools", "ffmpeg");
+        }
+
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (localAppData.Length > 0)
         {
