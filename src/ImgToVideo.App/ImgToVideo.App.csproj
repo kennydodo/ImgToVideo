@@ -8,6 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <RootNamespace>ImgToVideo.App</RootNamespace>
+    <AssemblyName>ImgToVideo</AssemblyName>
     <ApplicationIcon>imgtovideo_icon.ico</ApplicationIcon>
   </PropertyGroup>
 
