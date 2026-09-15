@@ -129,6 +129,13 @@ public partial class MainWindow : Window
 
             if (editor.Saved)
             {
+                // Re-read overrides.json (and any newly generated images) so the next
+                // BUILD PREVIEW and the reopened editor see the saved state instead of
+                // the stale in-memory copy from the last ANALYZE.
+                _inventory = ProjectLoader.Load(_projectFolder, _options);
+                UpdateIssues(_inventory.Issues);
+                UpdateStats();
+
                 _planned = null;
                 BtnBuild.IsEnabled = true;
                 BtnExport.IsEnabled = true;

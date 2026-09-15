@@ -28,8 +28,37 @@ public partial class SceneEditorWindow : Window
     {
         public string FilePath { get; set; } = string.Empty;
         public string Display { get; set; } = string.Empty;
-        public string Motion { get; set; } = "Auto";
-        public string Easing { get; set; } = "Auto";
+        private string _motion = "Auto";
+        public string Motion
+        {
+            get => _motion;
+            set
+            {
+                if (_motion == value)
+                {
+                    return;
+                }
+
+                _motion = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Motion)));
+            }
+        }
+
+        private string _easing = "Auto";
+        public string Easing
+        {
+            get => _easing;
+            set
+            {
+                if (_easing == value)
+                {
+                    return;
+                }
+
+                _easing = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Easing)));
+            }
+        }
 
         private string _duration = "0";
         public string Duration
@@ -48,7 +77,21 @@ public partial class SceneEditorWindow : Window
         }
 
         public bool Exclude { get; set; }
-        public string Transition { get; set; } = "Auto";
+        private string _transition = "Auto";
+        public string Transition
+        {
+            get => _transition;
+            set
+            {
+                if (_transition == value)
+                {
+                    return;
+                }
+
+                _transition = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Transition)));
+            }
+        }
         public long PlannedDuration { get; set; }
         public bool IsFirstClipOfVideo { get; set; }
         public double Nudge { get; set; }
@@ -568,6 +611,45 @@ public partial class SceneEditorWindow : Window
     }
 
     private void ExcludeBox_Changed(object sender, RoutedEventArgs e) => RefreshStrip();
+
+    private bool _applyingToAll;
+
+    private void MotionBox_ValueChanged(object sender, SelectionChangedEventArgs e) =>
+        ApplyRowValueToAll(sender, e, static (row, value) => row.Motion = value);
+
+    private void EasingBox_ValueChanged(object sender, SelectionChangedEventArgs e) =>
+        ApplyRowValueToAll(sender, e, static (row, value) => row.Easing = value);
+
+    private void TransitionBox_ValueChanged(object sender, SelectionChangedEventArgs e) =>
+        ApplyRowValueToAll(sender, e, static (row, value) => row.Transition = value);
+
+    private void ApplyRowValueToAll(object sender, SelectionChangedEventArgs e, Action<ClipRow, string> assign)
+    {
+        // Container generation raises SelectionChanged (empty -> first value) when the
+        // list binds; only fan out genuine user changes while the checkbox is checked.
+        if (ChkApplyToAll.IsChecked != true || _applyingToAll ||
+            e.RemovedItems.Count == 0 || sender is not ComboBox combo ||
+            combo.SelectedItem is not string value || string.IsNullOrEmpty(value))
+        {
+            return;
+        }
+
+        _applyingToAll = true;
+        try
+        {
+            foreach (var rows in _rowsByScene.Values)
+            {
+                foreach (var row in rows)
+                {
+                    assign(row, value);
+                }
+            }
+        }
+        finally
+        {
+            _applyingToAll = false;
+        }
+    }
 
     private void BuildRows()
     {

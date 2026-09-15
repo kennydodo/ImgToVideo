@@ -134,10 +134,12 @@
                                            ToolTip="{Binding FilePath}"/>
                                 <ComboBox Grid.Column="1" Margin="0,0,4,0"
                                           ItemsSource="{StaticResource MotionChoices}"
-                                          SelectedItem="{Binding Motion, Mode=TwoWay}"/>
+                                          SelectedItem="{Binding Motion, Mode=TwoWay}"
+                                          SelectionChanged="MotionBox_ValueChanged"/>
                                 <ComboBox Grid.Column="2" Margin="0,0,4,0"
                                           ItemsSource="{StaticResource EasingChoices}"
-                                          SelectedItem="{Binding Easing, Mode=TwoWay}"/>
+                                          SelectedItem="{Binding Easing, Mode=TwoWay}"
+                                          SelectionChanged="EasingBox_ValueChanged"/>
                                 <TextBox Grid.Column="3" Text="{Binding Duration, Mode=TwoWay}"
                                          Tag="{Binding}" TextChanged="DurationBox_TextChanged"/>
                                 <CheckBox Grid.Column="4" IsChecked="{Binding Exclude, Mode=TwoWay}"
@@ -145,7 +147,8 @@
                                           HorizontalAlignment="Center"/>
                                 <ComboBox Grid.Column="5" Margin="0,0,4,0"
                                           ItemsSource="{StaticResource TransitionChoices}"
-                                          SelectedItem="{Binding Transition, Mode=TwoWay}"/>
+                                          SelectedItem="{Binding Transition, Mode=TwoWay}"
+                                          SelectionChanged="TransitionBox_ValueChanged"/>
                                 <StackPanel Grid.Column="6" Margin="0,0,8,0"
                                             Visibility="{Binding CanNudge, Converter={StaticResource BoolToVis}}">
                                     <Slider Minimum="-120" Maximum="120"
@@ -206,6 +209,9 @@
                             Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
                             ToolTip="Open the current preview in a floating window"
                             Click="BtnUndock_Click"/>
+                    <CheckBox x:Name="ChkApplyToAll" Content="Apply motion / easing / transition to all rows"
+                              Margin="18,0,0,0" VerticalAlignment="Center"
+                              ToolTip="While checked, changing a row's motion, easing or transition sets the same value on every row of the video."/>
                 </StackPanel>
                 <Grid Grid.Row="1" Margin="10,8,10,0">
                     <local:PlayerControl x:Name="PlayerHost"/>

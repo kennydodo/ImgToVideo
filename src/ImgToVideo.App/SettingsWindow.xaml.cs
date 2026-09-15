@@ -33,16 +33,34 @@ public partial class SettingsWindow : Window
 
     private void LoadFromOptions()
     {
+        LoadPlanning();
+        LoadTiming();
+        LoadMotion();
+        LoadTransitions();
+        LoadNaming();
+        LoadOutput();
+        LoadSceneInference();
+        LoadRender();
+    }
+
+    private void LoadPlanning()
+    {
         CmbPlanner.ItemsSource = new[] { "v1", "v2" };
         CmbPlanner.SelectedItem = string.Equals(Options.Planner, "v2", StringComparison.OrdinalIgnoreCase)
             ? "v2"
             : "v1";
+    }
 
+    private void LoadTiming()
+    {
         TxtTimingMin.Text = F(Options.Timing.MinImageSeconds);
         TxtTimingPreferred.Text = F(Options.Timing.PreferredImageSeconds);
         TxtTimingMax.Text = F(Options.Timing.MaxImageSeconds);
         TxtTimingFloor.Text = F(Options.Timing.FloorImageSeconds);
+    }
 
+    private void LoadMotion()
+    {
         ChkAutoMotion.IsChecked = Options.Motion.AutoMotionEnabled;
         TxtMotionDuration.Text = Options.Motion.MotionDurationMs.ToString(CultureInfo.InvariantCulture);
         CmbEasing.ItemsSource = EasingModes.All.Select(e => e.Name).ToList();
@@ -54,7 +72,10 @@ public partial class SettingsWindow : Window
         TxtPanTravel.Text = F(Options.Motion.PanMaxTravelPercent);
         TxtStaticMin.Text = Options.Motion.StaticEveryMinShots.ToString(CultureInfo.InvariantCulture);
         TxtStaticMax.Text = Options.Motion.StaticEveryMaxShots.ToString(CultureInfo.InvariantCulture);
+    }
 
+    private void LoadTransitions()
+    {
         ChkTransitionsEnabled.IsChecked = Options.Transitions.Enabled;
         CmbTransitionKind.ItemsSource = TransitionCatalog.Shortlist.Select(t => t.Name).ToList();
         CmbTransitionKind.SelectedItem = TransitionCatalog.NameOf(Options.Transitions.Kind);
@@ -63,22 +84,35 @@ public partial class SettingsWindow : Window
         CmbTransitionAlignment.ItemsSource = TransitionAlignments.All.Select(a => a.Name).ToList();
         CmbTransitionAlignment.SelectedItem = TransitionAlignments.NameOf(Options.Transitions.Alignment);
         TxtTransitionDuration.Text = F(Options.Transitions.DurationSeconds);
+    }
 
+    private void LoadNaming()
+    {
         ChkTypeCodes.IsChecked = Options.Naming.TypeCodesEnabled;
         ChkMotionCodes.IsChecked = Options.Naming.MotionCodesEnabled;
         TxtScenePrefix.Text = Options.Naming.ScenePrefix;
         TxtNumberPadding.Text = Options.Naming.NumberPadding.ToString(CultureInfo.InvariantCulture);
         TxtSeparator.Text = Options.Naming.Separator;
         TxtExtensions.Text = string.Join(", ", Options.Naming.ImageExtensions);
+        UpdateNamingExample();
+    }
 
+    private void LoadOutput()
+    {
         TxtOutputWidth.Text = Options.Output.Width.ToString(CultureInfo.InvariantCulture);
         TxtOutputHeight.Text = Options.Output.Height.ToString(CultureInfo.InvariantCulture);
         TxtOutputFps.Text = F(Options.Output.Fps);
         LoadResolutionPreset();
+    }
 
+    private void LoadSceneInference()
+    {
         TxtSentenceGap.Text = F(Options.SceneInference.SentenceGapSeconds);
         TxtTerminalGap.Text = F(Options.SceneInference.TerminalPunctuationGapSeconds);
+    }
 
+    private void LoadRender()
+    {
         TxtPreviewWidth.Text = Options.Render.PreviewWidth.ToString(CultureInfo.InvariantCulture);
         TxtPreviewHeight.Text = Options.Render.PreviewHeight.ToString(CultureInfo.InvariantCulture);
         TxtPreviewPreset.Text = Options.Render.PreviewPreset;
@@ -88,6 +122,69 @@ public partial class SettingsWindow : Window
         TxtEncoder.Text = Options.Render.Encoder;
         TxtFfmpegPath.Text = Options.Render.FfmpegPath;
         TxtFfprobePath.Text = Options.Render.FfprobePath;
+    }
+
+    private void BtnResetDefaults_Click(object sender, RoutedEventArgs e)
+    {
+        var choice = MessageBox.Show(this,
+            "Reset ALL settings to their defaults?\n\n" +
+            "This only fills the dialog with defaults — click Save to apply them to the project.",
+            "ImgToVideo", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (choice != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        Options = new ProjectOptions();
+        LoadFromOptions();
+    }
+
+    private void BtnResetPlanning_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Planner = new ProjectOptions().Planner;
+        LoadPlanning();
+    }
+
+    private void BtnResetTiming_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Timing = new TimingOptions();
+        LoadTiming();
+    }
+
+    private void BtnResetMotion_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Motion = new MotionOptions();
+        LoadMotion();
+    }
+
+    private void BtnResetTransitions_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Transitions = new TransitionOptions();
+        LoadTransitions();
+    }
+
+    private void BtnResetNaming_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Naming = new NamingOptions();
+        LoadNaming();
+    }
+
+    private void BtnResetOutput_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Output = new OutputOptions();
+        LoadOutput();
+    }
+
+    private void BtnResetSceneInference_Click(object sender, RoutedEventArgs e)
+    {
+        Options.SceneInference = new SceneInferenceOptions();
+        LoadSceneInference();
+    }
+
+    private void BtnResetRender_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Render = new RenderOptions();
+        LoadRender();
     }
 
     private void LoadResolutionPreset()
