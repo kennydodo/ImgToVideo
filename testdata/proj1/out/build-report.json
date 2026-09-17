@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "project": "proj1",
+  "settings": {
+    "fps": 30,
+    "width": 1280,
+    "height": 720,
+    "auto_motion_enabled": true,
+    "easing": "Linear",
+    "timing": {
+      "floor_image_seconds": 2,
+      "min_image_seconds": 2.5,
+      "preferred_image_seconds": 5,
+      "max_image_seconds": 8
+    },
+    "transitions": {
+      "enabled": true,
+      "kind": "Crossfade",
+      "scene_boundary_kind": "Dip to black",
+      "alignment": "Late",
+      "duration_frames": 15
+    }
+  },
+  "inventory": {
+    "scene_count": 1,
+    "clip_count": 2,
+    "audio_file": "D:\\Repos\\ImgToVideo\\testdata\\proj1\\audio\\narration.mp3"
+  },
+  "timeline": {
+    "total_frames": 1800,
+    "scenes": [
+      {
+        "id": "S01",
+        "start_frame": 0,
+        "end_frame": 1800,
+        "clips": [
+          {
+            "file": "D:\\Repos\\ImgToVideo\\testdata\\proj1\\images\\S01_01_SCN_ST.png",
+            "start_frame": 0,
+            "duration_frames": 900,
+            "motion": "ST",
+            "motion_source": "Override",
+            "easing": "Linear"
+          },
+          {
+            "file": "D:\\Repos\\ImgToVideo\\testdata\\proj1\\images\\S02_01_CU_ZI.png",
+            "start_frame": 900,
+            "duration_frames": 900,
+            "motion": "ST",
+            "motion_source": "Override",
+            "easing": "Linear",
+            "transition_in": "Crossfade"
+          }
+        ]
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "Info",
+      "code": "SHOTLIST_PRECEDENCE",
+      "message": "shotlist.json takes precedence \u2014 visual_manifest.json was regenerated from it (edit the shotlist, not the manifest)."
+    },
+    {
+      "severity": "Info",
+      "code": "SHOT_TIMING",
+      "message": "Shot \u0022s1\u0022 (S01) \u00B7 cues 1-3 \u00B7 0:00.000 \u2192 0:30.000 (30.0 s) \u00B7 \u0022First line of narration. Second line continues. Third line of the story.\u0022"
+    },
+    {
+      "severity": "Info",
+      "code": "SHOT_TIMING",
+      "message": "Shot \u0022s2\u0022 (S01) \u00B7 cues 4-6 \u00B7 0:30.000 \u2192 1:00.000 (30.0 s) \u00B7 \u0022Fourth line adds detail. Fifth line wraps up. Sixth line ends it.\u0022"
+    }
+  ],
+  "coverage": {
+    "duration_seconds": 60,
+    "shot_count": 2,
+    "asset_count": 2,
+    "unique_assets_used": 2,
+    "average_seconds_per_source_change": 60,
+    "longest_same_source_seconds": 30,
+    "longest_shot_seconds": 30,
+    "missing_assets": [],
+    "unused_assets": []
+  }
+}

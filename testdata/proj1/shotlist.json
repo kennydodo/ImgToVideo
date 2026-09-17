@@ -1,0 +1,11 @@
+{
+  "style": "cinematic documentary look, warm cinematic color grade, no text in image",
+  "images": [
+    { "file": "S01_01_SCN_ST.png", "prompt": "wide establishing shot, calm morning city skyline at dawn, cinematic" },
+    { "file": "S02_01_CU_ZI.png", "prompt": "close-up of a coffee cup on a wooden table, morning light, cinematic" }
+  ],
+  "shots": [
+    { "shot_id": "s1", "cues": "1-3", "asset": "S01_01_SCN_ST.png" },
+    { "shot_id": "s2", "cues": "4-6", "asset": "S02_01_CU_ZI.png" }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "video": {
+    "id": "shotlist"
+  },
+  "assets": [
+    {
+      "id": "S01_01_SCN_ST.png",
+      "file": "S01_01_SCN_ST.png"
+    },
+    {
+      "id": "S02_01_CU_ZI.png",
+      "file": "S02_01_CU_ZI.png"
+    }
+  ],
+  "timeline": [
+    {
+      "shot_id": "s1",
+      "start_ms": 0,
+      "end_ms": 30000,
+      "scene_id": "S01",
+      "beat_id": "c1",
+      "srt_cue_ids": [
+        1,
+        2,
+        3
+      ],
+      "narration_text": "First line of narration. Second line continues. Third line of the story.",
+      "visual_intent": "wide establishing shot, calm morning city skyline at dawn, cinematic",
+      "asset_id": "S01_01_SCN_ST.png"
+    },
+    {
+      "shot_id": "s2",
+      "start_ms": 30000,
+      "end_ms": 60000,
+      "scene_id": "S01",
+      "beat_id": "c4",
+      "srt_cue_ids": [
+        4,
+        5,
+        6
+      ],
+      "narration_text": "Fourth line adds detail. Fifth line wraps up. Sixth line ends it.",
+      "visual_intent": "close-up of a coffee cup on a wooden table, morning light, cinematic",
+      "asset_id": "S02_01_CU_ZI.png"
+    }
+  ]
+}

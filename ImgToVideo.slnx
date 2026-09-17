@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/ImgToVideo.App/ImgToVideo.App.csproj" />
+    <Project Path="src/ImgToVideo.Cli/ImgToVideo.Cli.csproj" />
     <Project Path="src/ImgToVideo.Core/ImgToVideo.Core.csproj" />
     <Project Path="src/ImgToVideo.Ffmpeg/ImgToVideo.Ffmpeg.csproj" />
     <Project Path="src/ImgToVideo.ImageGen/ImgToVideo.ImageGen.csproj" />

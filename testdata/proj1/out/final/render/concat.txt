@@ -1,0 +1,4 @@
+ffconcat version 1.0
+file 'D:\Repos\ImgToVideo\testdata\proj1\out\final\render\seg_0001.mp4'
+file 'D:\Repos\ImgToVideo\testdata\proj1\out\final\render\join_0001.mp4'
+file 'D:\Repos\ImgToVideo\testdata\proj1\out\final\render\seg_0002.mp4'
