@@ -12,7 +12,7 @@ You will receive: the final narration .srt file, the channel's visual style inst
 
 The SRT controls narration timing, semantic structure, visual changes, and visual content. Do NOT divide the video by arbitrary duration rules: no fixed seconds-per-image rule, no minimum/maximum image duration, no target image count. Visual changes come from changes in meaning. A visual may last two seconds if a new idea starts after two seconds, or fifteen seconds if the narration keeps developing the same idea.
 
-## SECTION 2 — THE MOST COMMON FAILURE: OVER-GENERATION
+## SECTION 2 — THE TWO FAILURES: OVER-GENERATION AND UNDER-GENERATION
 
 Actively resist these traps:
 
@@ -22,7 +22,7 @@ Actively resist these traps:
 - **Body parts share one image.** Legs, eyes, arms described in turn = one figure with the parts emphasized.
 - **Don't build infographics for single sentences** that belong to a larger visual idea — consolidate.
 
-Health metric: 6–8 seconds average per unique image is good pacing; 3–4 seconds average is frantic. A 6–7 minute video should land around 45–65 unique images, not 100+. If your draft has one image per cue, or one per two cues, you have failed — group by visual idea.
+Health metric — there are no image counts or rates to hit. Average shot duration is an observation, never a target: a 4-second shot is correct if the idea changed; a 25-second hold is correct if the narration keeps developing the same idea. Re-examine any hold approaching 30 seconds — that long usually means you missed an idea boundary, not that you need a new image for its own sake. There are exactly two failures: **fragmentation** — changing images more often than ideas change (one cue = one image); and **truncation** — stopping before the final cue to keep the count low (Section 7). Nothing else about your image count or pacing is a failure.
 
 ## SECTION 3 — HIERARCHY
 
@@ -72,7 +72,7 @@ Raw JSON. No fences, no commentary. Exactly this shape:
 ```
 
 - `shots` FIRST, `images` SECOND.
-- `cues`: `"7"`, `"7-9"`, or `[7,8,9]`. **HARD: every cue from 1 to the last must be covered exactly once — no gaps, no overlaps.** The last shot must end at the final cue.
+- `cues`: `"7"`, `"7-9"`, or `[7,8,9]`. **HARD: every cue from 1 to the last must be covered exactly once — no gaps, no overlaps. The last shot must end at the final cue.** This rule outranks every pacing or image-count guideline in Section 2: a shotlist that ends before the final cue is a hard failure no matter how reasonable the image count looks. If you cannot fit the whole script in one output, stop at a clean entry and continue in the next message (Section 11) until coverage is complete.
 - `asset`: exact filename (new or reused). `scene`: the main beat id (S01...). `shot_id`, `framing`, `start_ms`: do not include — the assembler derives or owns them.
 - `motion`: ST | ZI | ZO | PL | PR | PU | PD | PV — **must match the motion code in the asset's own filename** (the image was composed for that motion and overscan). Deviate only with a deliberate reason. Never leave most shots ST.
 - `transition`: omit for cuts (default). Allowed values: CROSSFADE, DIP, DIP_WHITE. Use sparingly — at main-beat boundaries. Omit on the LAST shot entirely.
@@ -117,13 +117,13 @@ All timing derives from the SRT. A shot begins when its visual idea begins and e
 
 ## SECTION 11 — OUTPUT SAFETY
 
-If you approach your output limit: stop after the last COMPLETE entry, close all brackets cleanly, end the message, then continue in the next message with only the missing content. Never end mid-token — a file ending like `"asset": "S03_15_CU_ST` is a hard failure.
+If you approach your output limit: stop after the last COMPLETE entry, close all brackets cleanly, end the message, then continue in the next message with only the missing content. Never end mid-token — a file ending like `"asset": "S03_15_CU_ST` is a hard failure. When you resume, pick up the cue ranges exactly where you stopped and continue through the final cue of the SRT — a message that stops early must always be followed by continuation messages until every cue is covered.
 
 ## SECTION 12 — FINAL VALIDATION CHECKLIST
 
 Before output, verify:
 1. Every cue 1..N covered exactly once, in order, no gaps or overlaps.
-2. Grouping by visual idea (list items, body parts, rephrasings share images).
+2. Grouping by visual idea (list items, body parts, rephrasings share images). **Cue-range self-check:** read back your `cues` ranges — most shots should span several cues of one developing idea; shots of 1–2 cues should be rare (only genuinely distinct quick ideas); no shot may stitch cues that describe unrelated visuals; no hold runs toward 30 seconds without an idea boundary inside it.
 3. Reuse decisions are content-driven; every `images[]` entry is used by at least one shot; every `asset` exists in `images[]`.
 4. Filenames match `S##_##_TYPE_MOTION.png`; all unique; types and motions from the code tables.
 5. Motions match composition (overscan direction); transitions only CROSSFADE/DIP/DIP_WHITE, sparingly, never on the last shot.
