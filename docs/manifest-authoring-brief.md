@@ -97,7 +97,7 @@ Raw JSON. No fences, no commentary. Exactly this shape:
     { "cues": "10-12", "asset": "S01_04_INF_ST.png", "scene": "S01", "motion": "ST", "transition": "CROSSFADE" }
   ],
   "images": [
-    { "file": "S01_03_SCN_PR.png", "prompt": "<content only, under 20 words>" }
+    { "file": "S01_03_SCN_PR.png", "prompt": "<content only — as detailed as the image needs>" }
   ]
 }
 ```
@@ -158,5 +158,5 @@ Before output, verify:
 3. Reuse decisions are content-driven; every `images[]` entry is used by at least one shot; every `asset` exists in `images[]`.
 4. Filenames match `S##_##_TYPE_MOTION.png`; all unique; types and motions from the code tables.
 5. ST appears only on ~1–2-cue shots, capped at ~10% of shots, and only where the composition cannot tolerate overscan. Every other shot carries motion that matches its composition and canvas (a PR shot has the subject in the left third on a wide canvas; a ZI shot is centered with overscan; etc.). No single motion code exceeds ~40% of shots. Every motion code in `shots[].motion` matches the motion code in that shot's own filename. Transitions only CROSSFADE/DIP/DIP_WHITE, sparingly, never on the last shot.
-6. Prompts under 20 words, content only; style lives only in the `style` field.
+6. Prompts are as detailed as the image needs and describe only what makes this image different from every other: subject, action, composition, spatial layout, where the scene's light comes from. Zero style language anywhere in a prompt — no palette, no grade, no "photorealistic", "cinematic", film grain, or mood adjectives belonging to the channel. The master prompt (`style` field) is the only place style is stated; the batch app merges master + card at generation time.
 7. Document 2 (JSON) output first, raw and complete; Document 1 second, grouped by beat, master prompt on top.
