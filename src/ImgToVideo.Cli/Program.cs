@@ -183,8 +183,12 @@ if (command == "export-batch")
     };
 
     var batchPath = Path.Combine(outDir, "image-batch.json");
-    File.WriteAllText(batchPath, batch.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
-        new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    File.WriteAllText(batchPath, batch.ToJsonString(new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        // prompts are hand-read and hand-pasted: keep em-dashes etc. literal
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    }), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     Console.WriteLine($"missing images: {missing.Count} of {shotlist["images"]!.AsArray().Count} plan entries");
     Console.WriteLine($"batch json: {batchPath}");
     return 0;
