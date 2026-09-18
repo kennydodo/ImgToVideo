@@ -211,6 +211,89 @@ public class Fcp7XmlExporterTests
     }
 
     [Fact]
+    public void Crossfade_join_uses_the_standard_fcp7_opacity_effect()
+    {
+        // Mirrors Premiere's own serialization (verified against a reference
+        // export): the opacity effect lives in its own filter with effecttype
+        // "motion" and a single "opacity" parameter. The FCP7 spec's "level"
+        // parameterid is Premiere's AUDIO levels parameter — video opacity
+        // ignores it, which made every crossfade import as a hard cut.
+        var (timeline, images) = Sample();
+        timeline.Scenes[0].Clips[1].Transition = new TransitionIn
+        {
+            Kind = TransitionKind.Crossfade,
+            DurationFrames = 15,
+        };
+        var doc = XDocument.Parse(Fcp7XmlExporter.Export(timeline, images));
+
+        var overlay = ClipItem(doc, "clipitem-2-x");
+        Assert.Equal("S01_02_PR.png", overlay.Element("name")?.Value);
+        Assert.Equal("75", overlay.Element("start")?.Value); // 15 frames before the cut
+        Assert.Equal("90", overlay.Element("end")?.Value);   // trimmed to the fade window
+        Assert.Equal("15", overlay.Element("out")?.Value);
+
+        // Frozen motion: a single keyframe on the clip's first framing — V1
+        // animates the real motion once the cut lands.
+        var scale = ScalarKeyframes(overlay, "scale");
+        Assert.Single(scale);
+        Assert.Equal(("0", "100"), scale[0]);
+
+        // The opacity effect sits in its own filter element.
+        var filters = overlay.Elements("filter").ToList();
+        Assert.Equal(2, filters.Count);
+        var opacityEffect = filters[1].Element("effect")!;
+        Assert.Equal("opacity", opacityEffect.Element("effectid")?.Value);
+        Assert.Equal("motion", opacityEffect.Element("effecttype")?.Value);
+
+        var parameter = opacityEffect.Element("parameter")!;
+        Assert.Equal("opacity", parameter.Element("parameterid")?.Value);
+        var keyframes = parameter.Elements("keyframe")
+            .Select(k => ((string?)k.Element("when") ?? "", (string?)k.Element("value") ?? ""))
+            .ToArray();
+        Assert.Equal(2, keyframes.Length);
+        Assert.Equal(("0", "0"), keyframes[0]);
+        Assert.Equal(("15", "100"), keyframes[1]);
+
+        // The basic-motion filter carries no opacity parameter.
+        var basic = filters[0].Descendants("effect")
+            .First(e => (string?)e.Element("effectid") == "basic");
+        Assert.DoesNotContain(
+            basic.Descendants("parameter"),
+            p => (string?)p.Element("parameterid") == "opacity");
+    }
+
+    [Fact]
+    public void Dip_join_is_sequential_on_v1_without_overlays()
+    {
+        // A dip fades the outgoing tail to black and the incoming head in from
+        // it — sequential on V1, no overlay copies, no opacity on the wrong clip.
+        var (timeline, images) = Sample();
+        timeline.Scenes[0].Clips[1].Transition = new TransitionIn
+        {
+            Kind = TransitionKind.FadeBlack,
+            DurationFrames = 15,
+        };
+        var doc = XDocument.Parse(Fcp7XmlExporter.Export(timeline, images));
+
+        var videoClips = doc.Descendants("clipitem")
+            .Where(c => c.Element("sourcetrack") is null)
+            .ToList();
+        Assert.Equal(2, videoClips.Count);
+
+        // Outgoing tail: 100 at frame 75 (90 - 15) -> 0 at the cut.
+        var outgoing = ScalarKeyframes(ClipItem(doc, "clipitem-1"), "opacity");
+        Assert.Equal(2, outgoing.Length);
+        Assert.Equal(("75", "100"), outgoing[0]);
+        Assert.Equal(("90", "0"), outgoing[^1]);
+
+        // Incoming head: 0 at its start -> 100 at frame 15.
+        var incoming = ScalarKeyframes(ClipItem(doc, "clipitem-2"), "opacity");
+        Assert.Equal(2, incoming.Length);
+        Assert.Equal(("0", "0"), incoming[0]);
+        Assert.Equal(("15", "100"), incoming[^1]);
+    }
+
+    [Fact]
     public void Audio_track_spans_timeline_with_sourcetrack()
     {
         var (timeline, images) = Sample();

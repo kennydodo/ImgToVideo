@@ -2,6 +2,32 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-09-18 — planning rules rework + Premiere spike passed (215 tests green)
+
+- **Planning brief reworked** (docs/manifest-authoring-brief.md): no image-count or
+  duration caps — pacing is semantic (fragmentation + truncation are the only failures);
+  motion assigned WITH composition (motion-by-function table in §5, ST rare: ~1–2-cue
+  shots, ≤10%, no code >40%); split triggers added; prompt word cap removed (cards are
+  content-only, style lives only in the master).
+- **Planner motion precedence fixed**: shotlist motion → asset filename motion code →
+  STATIC (was: STATIC with no filename fallback). True MotionSource reporting (shotlist/
+  filename = ExplicitCode; editor = Override). Shotlist-driven pans now travel the full
+  overscan band.
+- **SHOT_HOLD_LONG warning** (`timing.warn_hold_seconds`, default 30, 0 disables): lazy
+  long holds surface in diagnostics for the COPY loop.
+- **Premiere spike phase 0/10 PASSED** (verified in Premiere by Kehinde): motion keyframes
+  + opacity crossfades survive the XML round-trip. Fixes: opacity serialized as Premiere's
+  own `opacity` parameter in its own filter (NOT FCP7 `level` — that is audio levels; and
+  NOT inside Basic Motion — dropped on import); crossfade overlays trimmed to their fade
+  windows (same-track overlap collapse made later crossfades hard cuts); dips sequential
+  on V1 (outgoing tail → black, incoming head from black; FadeWhite ≈ dip through dark).
+  Wipes/slides remain renderer-only (XML degrades to cuts; `transitionitem` spike optional,
+  not queued). New CLI command: `export-premiere <projectFolder>`.
+- **Queue:** (1) reconcile the test project (narration.srt has 115 cues, shotlist.json
+  still targets 370 — re-plan with the new brief), (2) full LLM re-plan of the doubled
+  script (~100 images expected), (3) CapCut tier-2 spike LAST (docs/spike-capcut-draft.md),
+  optional/minor: global app defaults layer, narration-tied PV reveals, transitionitem.
+
 ## One-pass LLM flow (2026-09-12 afternoon) — replaces assets.json
 
 - The assets.json round-trip was removed. The LLM plans EVERYTHING from the

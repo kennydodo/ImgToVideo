@@ -3,9 +3,11 @@
 //
 //   ImgToVideo.Cli render-final <projectFolder> [--preview]
 //   ImgToVideo.Cli plan <projectFolder>
+//   ImgToVideo.Cli export-premiere <projectFolder>
 //
 // render-final produces out\final\final.mp4 (+ captions.srt); --preview
-// renders the fast draft to out\preview.mp4 instead.
+// renders the fast draft to out\preview.mp4 instead. export-premiere writes
+// out\premiere.xml (FCP7 XML with motion keyframes).
 
 using System.Text.Json;
 using ImgToVideo.Core.Analysis;
@@ -15,6 +17,7 @@ using ImgToVideo.Core.Planning;
 using ImgToVideo.Core.Reporting;
 using ImgToVideo.Core.Serialization;
 using ImgToVideo.Ffmpeg;
+using ImgToVideo.Premiere;
 
 if (args.Length < 2)
 {
@@ -22,6 +25,7 @@ if (args.Length < 2)
         usage:
           ImgToVideo.Cli render-final <projectFolder> [--preview]
           ImgToVideo.Cli plan <projectFolder>
+          ImgToVideo.Cli export-premiere <projectFolder>
         """);
     return 2;
 }
@@ -30,7 +34,7 @@ var command = args[0].ToLowerInvariant();
 var folder = Path.GetFullPath(args[1]);
 var preview = args.Contains("--preview", StringComparer.OrdinalIgnoreCase);
 
-if (command is not ("render-final" or "plan"))
+if (command is not ("render-final" or "plan" or "export-premiere"))
 {
     Console.Error.WriteLine($"unknown command: {command}");
     return 2;
@@ -89,6 +93,17 @@ if (command == "plan")
 {
     Console.WriteLine($"plan ok: {planned.Timeline.Scenes.Count} scene(s)");
     Console.WriteLine($"timeline: {Path.Combine(outDir, "timeline.json")}");
+    return 0;
+}
+
+if (command == "export-premiere")
+{
+    var xmlPath = Path.Combine(outDir, "premiere.xml");
+    var xml = Fcp7XmlExporter.Export(
+        planned.Timeline, inventory.AllImages,
+        new PremiereExportOptions { IncludeMotionKeyframes = true });
+    File.WriteAllText(xmlPath, xml);
+    Console.WriteLine($"premiere xml: {xmlPath} — import it into Premiere (File > Import).");
     return 0;
 }
 

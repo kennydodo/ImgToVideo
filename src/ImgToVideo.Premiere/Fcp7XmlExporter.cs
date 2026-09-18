@@ -29,49 +29,68 @@ public static class Fcp7XmlExporter
         var totalFrames = clips.Sum(c => c.DurationFrames);
         var audioFrames = timeline.Audio.DurationFrames > 0 ? timeline.Audio.DurationFrames : totalFrames;
 
-        // V1 carries every clip at its timeline position. Clips whose incoming
-        // transition can be expressed with opacity (crossfade/dissolve/dips)
-        // are duplicated on V2 (above V1), starting `frames` earlier, with an
-        // opacity ramp — Premiere blends them over V1. Dips also fade the
-        // outgoing clip's tail on V1.
+        // V1 carries every clip at its timeline position.
+        //
+        // Crossfades (Crossfade/Dissolve): a superimposed copy of the incoming
+        // clip on V2, trimmed to exactly its fade-in window — overlays never
+        // overlap each other on the track, so Premiere cannot trim one away
+        // (that collapsed later crossfades into cuts).
+        //
+        // Dips (FadeBlack/FadeWhite): sequential on V1, no overlays — the
+        // outgoing clip's tail fades to black and the incoming clip's head
+        // fades in from it. FadeWhite shares this path (dip through dark);
+        // a true white flash would need a matte layer.
         var baseItems = new List<XElement>();
         var overlayItems = new List<XElement>();
 
         for (var index = 0; index < clips.Count; index++)
         {
             var clip = clips[index];
-            var transition = index > 0 ? clip.Transition : null;
-            var frames = transition?.DurationFrames ?? 0;
-            var overlap = transition is not null && frames >= 2
-                ? transition.Kind switch
-                {
-                    TransitionKind.Crossfade => OverlapStyle.FadeIn,
-                    TransitionKind.Dissolve => OverlapStyle.FadeIn,
-                    TransitionKind.FadeBlack => OverlapStyle.Dip,
-                    TransitionKind.FadeWhite => OverlapStyle.Dip,
-                    _ => OverlapStyle.None,
-                }
-                : OverlapStyle.None;
+            var duration = clip.DurationFrames;
 
-            if (overlap == OverlapStyle.None)
+            // Opacity keyframes on the V1 base clip: a head fade when this clip
+            // arrives through a dip, a tail fade when the next join leaves
+            // through one. Crossfades never touch the base clip's opacity —
+            // their overlay handles the blend.
+            var opacity = new List<(long When, double Value)>();
+            if (index > 0
+                && clip.Transition is { } incoming
+                && incoming.DurationFrames is { } inFrames && inFrames >= 2
+                && incoming.Kind is TransitionKind.FadeBlack or TransitionKind.FadeWhite)
             {
-                baseItems.Add(BuildVideoClipItem(
-                    clip, dimensions, index, timebase, timeline.Resolution, options,
-                    startOffset: 0, extraTail: 0, opacityRamp: null));
-                continue;
+                opacity.Add((0, 0.0));
+                opacity.Add((Math.Min(inFrames, duration), 100.0));
+            }
+
+            if (index + 1 < clips.Count
+                && clips[index + 1].Transition is { } outgoing
+                && outgoing.DurationFrames is { } outFrames && outFrames >= 2
+                && outgoing.Kind is TransitionKind.FadeBlack or TransitionKind.FadeWhite)
+            {
+                var tailStart = Math.Max(duration - outFrames, opacity.Count > 0 ? opacity[^1].When : 0);
+                if (opacity.Count == 0 || opacity[^1].When < tailStart)
+                {
+                    opacity.Add((tailStart, 100.0));
+                }
+
+                opacity.Add((duration, 0.0));
             }
 
             baseItems.Add(BuildVideoClipItem(
                 clip, dimensions, index, timebase, timeline.Resolution, options,
-                startOffset: 0, extraTail: 0,
-                opacityRamp: overlap == OverlapStyle.Dip
-                    ? (clip.DurationFrames - frames, 100.0, clip.DurationFrames, 0.0)
-                    : null));
+                startOffset: 0, duration: duration, frozenMotion: false,
+                opacityRamp: opacity.Count > 0 ? opacity.ToArray() : null));
 
-            overlayItems.Add(BuildVideoClipItem(
-                clip, dimensions, index, timebase, timeline.Resolution, options,
-                startOffset: -frames, extraTail: frames,
-                opacityRamp: (0, 0.0, frames, 100.0)));
+            if (index > 0
+                && clip.Transition is { } fadeIn
+                && fadeIn.DurationFrames is { } fadeFrames && fadeFrames >= 2
+                && fadeIn.Kind is TransitionKind.Crossfade or TransitionKind.Dissolve)
+            {
+                overlayItems.Add(BuildVideoClipItem(
+                    clip, dimensions, index, timebase, timeline.Resolution, options,
+                    startOffset: -fadeFrames, duration: fadeFrames, frozenMotion: true,
+                    opacityRamp: new[] { (0L, 0.0), (fadeFrames, 100.0) }));
+            }
         }
 
         var videoTrack = new XElement("track",
@@ -127,13 +146,6 @@ public static class Fcp7XmlExporter
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Environment.NewLine + root;
     }
 
-    private enum OverlapStyle
-    {
-        None,
-        FadeIn,
-        Dip,
-    }
-
     private static XElement BuildVideoClipItem(
         VideoClip clip,
         IReadOnlyDictionary<string, (int Width, int Height)> dimensions,
@@ -142,17 +154,18 @@ public static class Fcp7XmlExporter
         Resolution resolution,
         PremiereExportOptions options,
         long startOffset,
-        long extraTail,
-        (long Frame, double Value, long Frame2, double Value2)? opacityRamp)
+        long duration,
+        bool frozenMotion,
+        (long When, double Value)[]? opacityRamp)
     {
         var (sourceWidth, sourceHeight) = dimensions[clip.FilePath];
-        var duration = clip.DurationFrames + extraTail;
         var fileName = Path.GetFileName(clip.FilePath);
-        var idSuffix = (index + 1).ToString(CultureInfo.InvariantCulture);
+        var idSuffix = (index + 1).ToString(CultureInfo.InvariantCulture) +
+                       (frozenMotion ? "-x" : "");
         var start = clip.StartFrame + startOffset;
 
         var clipItem = new XElement("clipitem",
-            new XAttribute("id", $"clipitem-{idSuffix}{(extraTail > 0 ? "-x" : "")}"),
+            new XAttribute("id", $"clipitem-{idSuffix}"),
             new XElement("masterclipid", $"masterclip-{idSuffix}"),
             new XElement("name", fileName),
             new XElement("enabled", "TRUE"),
@@ -175,10 +188,22 @@ public static class Fcp7XmlExporter
                             new XElement("width", sourceWidth.ToString(CultureInfo.InvariantCulture)),
                             new XElement("height", sourceHeight.ToString(CultureInfo.InvariantCulture)))))));
 
-        if (options.IncludeMotionKeyframes || opacityRamp is not null)
+        // Motion keyframes live in the Basic Motion effect; opacity ramps live in
+        // their own filter element, serialized exactly as Premiere itself exports
+        // them (verified against a reference export): parameterid "opacity" — the
+        // FCP7 spec's "level" is Premiere's AUDIO levels parameter — inside an
+        // opacity effect with effecttype "motion". A custom parameter inside the
+        // basic-motion effect was silently dropped on import.
+        if (options.IncludeMotionKeyframes)
         {
-            clipItem.Add(new XElement("filter",
-                BuildMotionFilter(clip, sourceWidth, sourceHeight, resolution, idSuffix, duration, timebase, opacityRamp)));
+            clipItem.Add(new XElement("filter", BuildMotionFilter(
+                clip, sourceWidth, sourceHeight, resolution, idSuffix,
+                frozenMotion ? 1 : duration, timebase, frozenMotion)));
+        }
+
+        if (opacityRamp is { } ramp)
+        {
+            clipItem.Add(BuildOpacityFilter(ramp));
         }
 
         return clipItem;
@@ -192,7 +217,7 @@ public static class Fcp7XmlExporter
         string idSuffix,
         long duration,
         int timebase,
-        (long Frame, double Value, long Frame2, double Value2)? opacityRamp)
+        bool frozenMotion = false)
     {
         double Progress(long f) => duration > 1
             ? Eased(clip.Easing, f / (double)(duration - 1))
@@ -226,12 +251,18 @@ public static class Fcp7XmlExporter
             (sourceHeight / 2.0 - ViewportCenterY(f)) * (resolution.Height / ViewportHeight(f));
 
         // Sample the eased motion every ~half second (min 2, max 13 keyframes)
-        // so Premiere reproduces the easing instead of a linear slide.
-        var sampleCount = Math.Clamp((int)Math.Ceiling(duration / (timebase / 2.0)), 2, 13);
+        // so Premiere reproduces the easing instead of a linear slide. Overlay
+        // copies frozen on their first framing emit a single start keyframe —
+        // V1 animates the real motion once the cut lands.
+        var sampleCount = frozenMotion
+            ? 1
+            : Math.Clamp((int)Math.Ceiling(duration / (timebase / 2.0)), 2, 13);
         var samples = new List<long>();
         for (var i = 0; i < sampleCount; i++)
         {
-            samples.Add(duration > 1 ? (long)Math.Round(i * (double)(duration - 1) / (sampleCount - 1)) : 0);
+            samples.Add(duration > 1 && !frozenMotion
+                ? (long)Math.Round(i * (double)(duration - 1) / (sampleCount - 1))
+                : 0);
         }
 
         var scaleParameter = new XElement("parameter",
@@ -269,22 +300,37 @@ public static class Fcp7XmlExporter
             centerParameter,
             rotationParameter);
 
-        if (opacityRamp is { } ramp)
+        return effect;
+    }
+
+    // Mirrors Premiere's own FCP XML serialization of clip opacity: the opacity
+    // effect lives in its own filter, effecttype "motion", with a single
+    // "opacity" parameter holding the keyframes.
+    private static XElement BuildOpacityFilter((long When, double Value)[] keyframes)
+    {
+        var parameter = new XElement("parameter",
+            new XAttribute("authoringApp", "PremierePro"),
+            new XElement("parameterid", "opacity"),
+            new XElement("name", "opacity"),
+            new XElement("valuemin", "0"),
+            new XElement("valuemax", "100"),
+            new XElement("value", F(keyframes[0].Value)));
+        foreach (var (when, value) in keyframes)
         {
-            effect.Add(new XElement("parameter",
-                new XAttribute("authoringApp", "PremierePro"),
-                new XElement("parameterid", "opacity"),
-                new XElement("name", "Opacity"),
-                new XElement("value", F(ramp.Value)),
-                new XElement("keyframe",
-                    new XElement("when", ramp.Frame.ToString(CultureInfo.InvariantCulture)),
-                    new XElement("value", F(ramp.Value))),
-                new XElement("keyframe",
-                    new XElement("when", ramp.Frame2.ToString(CultureInfo.InvariantCulture)),
-                    new XElement("value", F(ramp.Value2)))));
+            parameter.Add(new XElement("keyframe",
+                new XElement("when", when.ToString(CultureInfo.InvariantCulture)),
+                new XElement("value", F(value))));
         }
 
-        return effect;
+        return new XElement("filter",
+            new XElement("effect",
+                new XElement("name", "Opacity"),
+                new XElement("effectid", "opacity"),
+                new XElement("effectcategory", "motion"),
+                new XElement("effecttype", "motion"),
+                new XElement("mediatype", "video"),
+                new XElement("pproBypass", "false"),
+                parameter));
     }
 
     private static double Eased(EasingMode easing, double progress)

@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="..\ImgToVideo.Core\ImgToVideo.Core.csproj" />
     <ProjectReference Include="..\ImgToVideo.Ffmpeg\ImgToVideo.Ffmpeg.csproj" />
+    <ProjectReference Include="..\ImgToVideo.Premiere\ImgToVideo.Premiere.csproj" />
   </ItemGroup>
 </Project>

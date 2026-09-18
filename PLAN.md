@@ -270,7 +270,7 @@ without ever spawning a process.
 
 | # | Phase | Done when |
 |---|---|---|
-| 0 | **Spike: FCP7 XML keyframes** — hand-write xmeml with scale/position keyframes, import to Premiere | Motion survives import, or fallback decision recorded (cuts-only XML) — *before* committing to the export design |
+| 0 | **Spike: FCP7 XML keyframes** — hand-write xmeml with scale/position keyframes, import to Premiere | ✅ **PASSED (2026-09-18)** — motion keyframes and opacity crossfades verified in Premiere; see §13 Premiere notes |
 | 0b | **Spike: CapCut draft import** — study the installed CapCut version's `draft_content.json`, generate a two-clip draft externally | CapCut shows the draft with correct clips/timing, or tier 2 is rejected and tier 1 (MP4 + SRT) is the committed CapCut path |
 | 1 | Core models + timeline.json writer/reader | Round-trip test; unknown `schemaVersion` rejected; byte-identical output |
 | 2 | SRT parser | Edge-case corpus passes (BOM, CRLF, multi-line, overlaps, hours ≥ 1) |
@@ -281,7 +281,7 @@ without ever spawning a process.
 | 7 | Planner | `timeline.json` + `build-report.json` byte-identical across runs |
 | 8 | FFmpeg renderer | 10-min fixture previews correctly with audio, progress, cancel |
 | 9 | Transitions | Crossfades present, coverage invariant still holds |
-| 10 | Premiere exporter | Spike-quality XML generated from real project; import verified |
+| 10 | Premiere exporter | ✅ **DONE (2026-09-18)** — verified against a real import (`ImgToVideo.Cli export-premiere` + Premiere XML round-trip) |
 | 10b | CapCut export | Tier 1: final-quality render + SRT copy produced by one click. Tier 2 (if 0b passed): draft exporter verified against real CapCut import |
 | 11 | WPF shell + settings pages | The mocked UI, async with progress/cancel; settings pages edit `ProjectOptions` (effects, timing, naming with live `FormatExample()` preview) and persist to `imgtovideo.json` |
 | 12 | Manual overrides | Per-image suffix already in 3; per-clip duration/motion edits |
@@ -416,6 +416,29 @@ Refinements made while implementing phases 1–7; these refine the rules above.
 - `IncludeMotionKeyframes = false` produces the cuts-only fallback XML (no effect elements) —
   this is the recorded fallback if the phase-0 spike shows Premiere drops imported keyframes
 - Built with System.Xml.Linq, so names/paths are XML-escaped by construction
+
+**Premiere exporter — spike VERIFIED (2026-09-18), as-built corrections**
+- Phase 0/10 passed by round-tripping a real project (`ImgToVideo.Cli export-premiere`) into
+  Premiere. Two importer quirks were found and fixed empirically (each verified against a
+  reference XML exported by Premiere itself):
+  - **Opacity serialization:** Premiere's video opacity parameter is `parameterid opacity`
+    (name `opacity`) inside its own `Opacity` effect with `effecttype motion` — NOT the FCP7
+    spec's `level` parameter (that is Premiere's *audio* levels parameter). An opacity parameter
+    inside the Basic Motion effect is silently dropped on import, which collapsed every
+    crossfade into a hard cut. The exporter now emits the opacity effect in its own filter,
+    mirroring Premiere's own serialization exactly.
+  - **Overlay geometry:** crossfade overlay copies are trimmed to exactly their fade-in window
+    (`[cut−J, cut]`, frozen on the incoming clip's first framing — V1 animates the real motion
+    after the cut). Full-length overlays overlapped each other on one track and Premiere's
+    trim-on-import collapsed later crossfades into cuts.
+  - **Dips (FadeBlack/FadeWhite):** sequential on V1 — outgoing tail fades to black, incoming
+    head fades in from it; no overlays. FadeWhite shares this path (dip through dark; a true
+    white flash would need a matte layer — known approximation).
+  - Wipes/slides/circle/smooth remain renderer-only (`xfade`); the XML export degrades them to
+    cuts, and the authoring brief restricts shotlists to the three verified kinds. A
+    `transitionitem` spike could unlock the rest in XML if ever needed (optional, not queued).
+- `ImgToVideo.Cli export-premiere <projectFolder>` — headless Premiere export (same XML as the
+  app's Export Premiere button).
 
 **WPF shell (§11, phase 11)**
 - `MainWindow` implements the mocked UI: project folder (browse + last-folder persistence),
