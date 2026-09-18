@@ -189,7 +189,7 @@ public class ManifestPlannerTests
         Assert.Equal(TransitionKind.Crossfade, clips[2].Transition!.Kind); // settings fallback
         Assert.NotNull(clips[3].Transition); // SH003 CROSSFADE 180ms -> 5-6 frames
         Assert.Equal(TransitionKind.Crossfade, clips[3].Transition!.Kind);
-        Assert.Equal(5, clips[3].Transition.DurationFrames); // 180ms @ 30fps = 5.4 -> 5
+        Assert.Equal(5, clips[3].Transition!.DurationFrames); // 180ms @ 30fps = 5.4 -> 5
     }
 
     [Fact]
@@ -199,8 +199,53 @@ public class ManifestPlannerTests
         var sh2 = timeline.Scenes[0].Clips[1];
 
         Assert.Equal(MotionType.PanRight, sh2.Motion);
-        Assert.Equal(MotionSource.Override, sh2.MotionSource);
+        Assert.Equal(MotionSource.ExplicitCode, sh2.MotionSource);
         Assert.True(sh2.EndViewport.X > sh2.StartViewport.X);
+    }
+
+    [Fact]
+    public void Missing_shotlist_motion_falls_back_to_the_filename_code()
+    {
+        // The image was composed for the motion in its filename: when the shotlist
+        // entry omits motion, the filename code drives the shot.
+        var manifest = SampleManifest();
+        var shots = manifest.Timeline.ToList();
+        shots[1] = shots[1] with { Motion = null };
+        var images = new List<ImageInfo>
+        {
+            new(Path.Combine("images", "S01_B01_01.png"),
+                new ParsedImageName("S01_B01_01", 1, 1, null, false), 1920, 1080),
+            new(Path.Combine("images", "S01_B02_01.png"),
+                new ParsedImageName("S01_B02_01", 1, 2, MotionType.PanRight, false), 2880, 1296),
+            new(Path.Combine("images", "S01_B03_01_INFO.png"),
+                new ParsedImageName("S01_B03_01_INFO", 1, 3, null, false), 1920, 1080),
+        };
+
+        var options = Options();
+        var result = ManifestPlanner.Plan(manifest with { Timeline = shots }, images, options, 405, new ProjectOverrides());
+
+        var clip = result.Timeline!.Scenes[0].Clips[1];
+        Assert.Equal(MotionType.PanRight, clip.Motion);
+        Assert.Equal(MotionSource.ExplicitCode, clip.MotionSource);
+        Assert.Contains(result.Issues, i => i.Code == "MOTION_FROM_FILENAME" &&
+            i.Severity == ValidationSeverity.Info &&
+            i.Message.Contains("SH002"));
+    }
+
+    [Fact]
+    public void Missing_motion_everywhere_defaults_to_static()
+    {
+        // No shotlist motion and no filename code: the documented STATIC default.
+        var manifest = SampleManifest();
+        var shots = manifest.Timeline.ToList();
+        shots[1] = shots[1] with { Motion = null };
+
+        var (timeline, _, issues) = Plan(manifest with { Timeline = shots });
+
+        var clip = timeline.Scenes[0].Clips[1];
+        Assert.Equal(MotionType.Static, clip.Motion);
+        Assert.Equal(MotionSource.AutoSelected, clip.MotionSource);
+        Assert.DoesNotContain(issues, i => i.Code == "MOTION_FROM_FILENAME");
     }
 
     [Fact]
@@ -285,6 +330,38 @@ public class ManifestPlannerTests
         Assert.Equal(405, clips.Sum(c => c.DurationFrames));
         // SH003 absorbs SH002's 3570ms: SH001 covers 0→6810ms (204 frames).
         Assert.Equal(204, clips[0].DurationFrames);
+    }
+
+    [Fact]
+    public void Holds_over_the_threshold_warn_for_review()
+    {
+        // SH004 is the last shot: the tail pin extends it to the audio end
+        // (1500 frames ≈ 39.9 s) — over the default 30 s hold threshold.
+        var (_, _, issues) = Plan(audioFrames: 1500);
+
+        var warning = Assert.Single(issues, i => i.Code == "SHOT_HOLD_LONG");
+        Assert.Equal(ValidationSeverity.Warning, warning.Severity);
+        Assert.Contains("SH004", warning.Message);
+        Assert.Contains("split it in shotlist.json", warning.Message);
+    }
+
+    [Fact]
+    public void Holds_under_the_threshold_stay_silent()
+    {
+        // Default sample: shots hold ~3-13 s against the 30 s threshold.
+        var (_, _, issues) = Plan();
+
+        Assert.DoesNotContain(issues, i => i.Code == "SHOT_HOLD_LONG");
+    }
+
+    [Fact]
+    public void Zero_threshold_disables_the_hold_warning()
+    {
+        var options = Options();
+        options.Timing.WarnHoldSeconds = 0;
+        var result = ManifestPlanner.Plan(SampleManifest(), Images(), options, 1500, new ProjectOverrides());
+
+        Assert.DoesNotContain(result.Issues, i => i.Code == "SHOT_HOLD_LONG");
     }
 
     [Fact]

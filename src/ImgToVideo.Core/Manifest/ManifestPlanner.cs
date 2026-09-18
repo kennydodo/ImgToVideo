@@ -247,6 +247,7 @@ public static class ManifestPlanner
         }
 
         // Per-shot audit: cue coverage and the final on-screen window for every shot.
+        var warnHoldSeconds = options.Timing.WarnHoldSeconds;
         for (var i = 0; i < clips.Count; i++)
         {
             var clip = clips[i].Clip;
@@ -256,6 +257,21 @@ public static class ManifestPlanner
                 $"Shot \"{shot.ShotId}\" ({clip.SceneId}) · cues {FormatCues(shot.SrtCueIds)} · " +
                 $"{FormatMs(clip.StartFrame * 1000.0 / fps)} → {FormatMs((clip.StartFrame + clip.DurationFrames) * 1000.0 / fps)} " +
                 $"({clip.DurationFrames / (double)fps:F1} s) · \"{TruncateNarration(shot.NarrationText)}\""));
+
+            // The LLM plans in cues and never computes seconds — long holds are how
+            // lazy grouping shows up. Surface it deterministically so the COPY loop
+            // can ask for a split. Advisory: the human decides where the boundary is.
+            if (warnHoldSeconds > 0 &&
+                clip.DurationFrames > (long)Math.Round(warnHoldSeconds * fps))
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "SHOT_HOLD_LONG",
+                    $"Shot \"{shot.ShotId}\" holds {clip.DurationFrames / (double)fps:0.#}s — verify it is " +
+                    "one continuously developing idea, or split it in shotlist.json." +
+                    (string.IsNullOrWhiteSpace(shot.NarrationText)
+                        ? ""
+                        : $"\n  Narration: \"{TruncateNarration(shot.NarrationText)}\"")));
+            }
         }
 
         // Group consecutive shots with the same scene id into timeline scenes.
@@ -354,14 +370,39 @@ public static class ManifestPlanner
         ProjectOverrides overrides, List<ValidationIssue> issues)
     {
         var shotOverride = overrides.ForShot(shot.ShotId!);
+
+        // Motion precedence: the shotlist entry first, then the motion code encoded
+        // in the asset filename (the image was composed for that motion and overscan),
+        // then the documented STATIC default. A Scene Editor override wins over all three.
+        MotionType motion;
         var motionText = shot.Motion?.Type ?? "STATIC";
-        if (!TryParseMotion(motionText, out var motion))
+        var motionSource = MotionSource.ExplicitCode;
+        if (!TryParseMotion(motionText, out motion))
         {
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Warning, "MANIFEST_MOTION_UNKNOWN",
                 $"Shot \"{shot.ShotId}\" requests unknown motion \"{motionText}\"; using STATIC."));
             motion = MotionType.Static;
             motionText = "STATIC";
+            motionSource = MotionSource.AutoSelected;
+        }
+        else if (shot.Motion is null)
+        {
+            if (image.Name.Code is { } fromName)
+            {
+                motion = fromName;
+                motionText = fromName.ToString().ToUpperInvariant();
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Info, "MOTION_FROM_FILENAME",
+                    $"Shot \"{shot.ShotId}\" specifies no motion; using the filename code {motionText} " +
+                    "(the image was composed for it)."));
+            }
+            else
+            {
+                motion = MotionType.Static;
+                motionText = "STATIC";
+                motionSource = MotionSource.AutoSelected;
+            }
         }
 
         // Scene Editor overrides win over the shotlist: the user deliberately
@@ -370,6 +411,7 @@ public static class ManifestPlanner
         {
             motion = overrideMotion;
             motionText = overrideMotion.ToString().ToUpperInvariant();
+            motionSource = MotionSource.Override;
         }
 
         var safeMotion = (asset.SafeMotion ?? [])
@@ -396,7 +438,7 @@ public static class ManifestPlanner
         }
 
         var (startViewport, endViewport) = ResolveViewports(
-            shot, asset, motion, motionText, image, options, issues);
+            shot, asset, motion, motionSource, motionText, image, options, issues);
 
         return new VideoClip
         {
@@ -406,7 +448,7 @@ public static class ManifestPlanner
             StartFrame = start,
             DurationFrames = duration,
             Motion = motion,
-            MotionSource = MotionSource.Override,
+            MotionSource = motionSource,
             ImageType = AssetTypeMap.TryGetValue(asset.Type ?? "", out var imageType)
                 ? imageType
                 : null,
@@ -516,6 +558,7 @@ public static class ManifestPlanner
         VisualShot shot,
         VisualAsset asset,
         MotionType motion,
+        MotionSource motionSource,
         string motionText,
         ImageInfo image,
         ProjectOptions options,
@@ -523,9 +566,11 @@ public static class ManifestPlanner
     {
         if (motion is not (MotionType.Static or MotionType.ZoomIn or MotionType.ZoomOut))
         {
-            // Pans ride the motion engine's full-image travel bands.
+            // Pans ride the motion engine's travel bands: explicit codes (shotlist
+            // or filename) use the full overscan band, so the pan performs the
+            // composition's intent.
             var panPlan = new MotionEngine(options.Motion, options.Output)
-                .PlanClip(motion, MotionSource.Override, panRight: motion != MotionType.PanLeft,
+                .PlanClip(motion, motionSource, panRight: motion != MotionType.PanLeft,
                     image.Width, image.Height);
             return (panPlan.Start, panPlan.End);
         }
