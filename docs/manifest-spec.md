@@ -88,10 +88,13 @@ region (WARNING). Non-16:9 viewports letterbox through the existing render modes
    larger gaps/overlaps close by adjusting the previous shot (WARNING).
 3. The last shot is pinned to the ffprobe audio duration (INFO if ≤ 2 frames of
    drift, else WARNING).
-4. A shot whose asset is missing does not block the build: it is dropped, its
+4. A shot holding longer than `timing.warn_hold_seconds` (default 30 s; 0
+   disables) emits WARNING `SHOT_HOLD_LONG` — verify it is one continuously
+   developing idea, or split it in shotlist.json.
+5. A shot whose asset is missing does not block the build: it is dropped, its
    screen time is absorbed by the neighbouring shot, and a GENERATE hint is
    emitted (asset id, file, beat, timecode, `narration_text`, `visual_intent`).
-5. Shots referencing an unknown `asset_id` are ERRORS and dropped the same way.
+6. Shots referencing an unknown `asset_id` are ERRORS and dropped the same way.
 
 ## shotlist.json — the LLM plan (one-pass, updated 2026-09-12)
 
