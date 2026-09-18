@@ -2,6 +2,39 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-09-19 — START HERE: fix the image-batch delta (22 → 8)
+
+**State**: TestWhisperRader has the NEW 81-image/81-shot shotlist (the 8 SHOT_HOLD_LONG
+splits, done by the LLM) + 59 generated images on disk + 22-card delta in
+`out\image-batch.json`. **Problem**: the LLM *renumbered* sub-beats when splitting, so
+14 already-generated shots got renamed (their names became orphans in images-retired\)
+and the delta ballooned from 8 to 22. Generating the 22 would re-render 14 existing
+images under new names.
+
+**Fix, in order:**
+
+1. **Brief edit** (docs/manifest-authoring-brief.md, §9 naming): replace
+   "Sequential sub-beat numbering per beat" with —
+   > "Sub-beat numbers are stable identifiers: **never rename or renumber an existing
+   > entry** — new images allocate the **next unused index in their scene** (gaps are
+   > fine; nothing orders by filename, the assembler sequences by cue ranges)."
+2. **Re-prompt the LLM** (the split work is done — it only re-emits with stable names):
+   > "Re-emit the exact same 81-shot plan with one constraint: keep every existing
+   > filename byte-for-byte — never rename or renumber an entry. The 8 new images
+   > (the second halves of the 8 splits) take the next UNUSED index in their scene
+   > (gaps are fine). Every cue 1–736 stays covered exactly once."
+3. Drop the re-issued shotlist.json in → `ImgToVideo.Cli export-batch <projectFolder>`
+   → **must report 8 cards** (the recomputed delta; already-generated names drop out).
+   If any of the 22 were already generated before the re-issue, they count as present.
+4. Generate the 8 into `images\` → ANALYZE → zero GENERATE hints, SHOT_HOLD_LONG gone →
+   preview → final → `export-premiere` / `export-capcut`.
+
+Housekeeping from 2026-09-18 (already done): full 736-cue SRT restored from
+WhisperRadar (old 114-cue one at narration.srt.old115.bak), 30 stale images retired to
+images-retired\, `export-batch` CLI + typo-downgrade committed (572d039, 759086a,
+4f958ad). CapCut exports as **cuts** and pans as **static** until the two reference
+captures noted in spike-capcut-draft.md.
+
 ## 2026-09-18 — planning rules rework + Premiere spike passed (215 tests green)
 
 - **Planning brief reworked** (docs/manifest-authoring-brief.md): no image-count or
