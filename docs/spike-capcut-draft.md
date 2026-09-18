@@ -37,3 +37,53 @@ territory (see the pyJianYingDraft project for prior art). Version-fragile by na
 
 A dated note in this file: CapCut version, schema observations (or a link to notes),
 PASS/FAIL, and if PASS the minimum stable subset the exporter will target.
+
+## RESULT — PASS (2026-09-18)
+
+CapCut desktop **9.4.0.4015** (draft `new_version 185.0.0`). Reference draft created by
+hand (two images, no transition/keyframes), then hand-edited per protocol: clip 1
+extended 5s→7s, clip 2 shifted, and `KFTypeScaleX`/`KFTypeScaleY` keyframes (1.0→1.3)
+added — **CapCut reopened the draft and played the zoom. Verified by Kehinde.**
+
+### Schema observations
+
+- **Units: microseconds** everywhere (`duration 10000000` = 10 s). Stills get a nominal
+  3-hour material duration (`10800000000`); `source_timerange` slices it.
+- **Media**: `materials.videos[]` with absolute forward-slash `path`, `width`, `height`,
+  `material_name`, `has_audio`.
+- **Segment**: `{material_id, target_timerange {start,duration}, source_timerange,
+  extra_material_refs (6 GUIDs), clip {scale{x,y}, rotation, transform{x,y}, flip, alpha},
+  common_keyframes, speed}`. Segment order = timeline order.
+- **Companion materials per segment (all 6 refs)**: `canvases` (canvas_color),
+  `speeds` (speed 1.0), `sound_channel_mappings`, `material_colors`,
+  `placeholder_infos`, `vocal_separations` — an exporter must emit these.
+- **Keyframes**: `segment.common_keyframes[]` = `{id, keyframe_list[], material_id:"",
+  property_type}`; keyframe = `{id, left_control/right_control {x:0.5,y:0.5},
+  time_offset (µs, clip-relative), values[1]}`. Property tags: `KFTypeScaleX`,
+  `KFTypeScaleY`, `KFTypePositionX`, `KFTypePositionY`, `KFTypeRotation`, `KFTypeAlpha`…
+- **Canvas**: top-level `canvas_config {ratio:"original", width, height, background}` —
+  `original` follows the first clip's aspect; an exporter pins `ratio:"16:9"` explicitly.
+- **Registration**: the draft folder needs `draft_content.json` **and**
+  `draft_meta_info.json` (draft_id, draft_name, draft_fold_path, tm_draft_create/modified,
+  tm_duration, draft_materials…). `draft_content.json.bak` is CapCut's own backup.
+- **CRITICAL GOTCHA**: `draft_content.json` must be **BOM-less UTF-8**. PowerShell 5.1's
+  `UTF8` encoding writes a BOM and CapCut's parser then refuses to open the draft
+  (silently — the project just fails to open). Write with `UTF8Encoding(false)`.
+
+### Minimum stable subset for the exporter (v1) — SHIPPED & VERIFIED (2026-09-18)
+
+- `src/ImgToVideo.CapCut` (`CapCutDraftExporter`) + `ImgToVideo.Cli export-capcut
+  <projectFolder>` → writes `out\capcut\<name>\` (draft_content.json +
+  draft_meta_info.json, BOM-less); copy the folder into the CapCut draft root
+  and open. Verified by Kehinde: a real 4-clip + narration draft (26 s) opened
+  in CapCut 9.4.0.4015 with correct timing and scale keyframes.
+- Video track: one segment per VideoClip (µs timeranges, stills slice the 3-h nominal),
+  six companion materials per segment (exact reference field shapes — material_colors
+  has no `type` field), `canvas_config` pinned to the project resolution.
+- Scale keyframes for ZI/ZO (`KFTypeScaleX/Y`, cover-fit = scale 1.0 baseline); ST static.
+- Narration as an audio material (`extract_music`) + audio track segment.
+- `draft_meta_info.json` emitted alongside (draft_id/name/path/times/duration/materials).
+- **Deferred**: transform/position keyframes (CapCut transform units need one calibration
+  capture — move a clip in CapCut, read `transform` values), transitions (need a reference
+  draft with one), text/captions. Until then: PL/PR/PU/PD/PV export as static, all joins
+  export as cuts.

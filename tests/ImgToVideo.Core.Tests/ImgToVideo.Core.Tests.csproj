@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\ImgToVideo.Core\ImgToVideo.Core.csproj" />
     <ProjectReference Include="..\..\src\ImgToVideo.Ffmpeg\ImgToVideo.Ffmpeg.csproj" />
     <ProjectReference Include="..\..\src\ImgToVideo.Premiere\ImgToVideo.Premiere.csproj" />
+    <ProjectReference Include="..\..\src\ImgToVideo.CapCut\ImgToVideo.CapCut.csproj" />
   </ItemGroup>
 
 </Project>

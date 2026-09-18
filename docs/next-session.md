@@ -23,10 +23,16 @@ Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll f
   on V1 (outgoing tail → black, incoming head from black; FadeWhite ≈ dip through dark).
   Wipes/slides remain renderer-only (XML degrades to cuts; `transitionitem` spike optional,
   not queued). New CLI command: `export-premiere <projectFolder>`.
+- **CapCut tier-2 spike PASSED + exporter SHIPPED (2026-09-18 evening)**: schema studied
+  from a reference draft (µs units, 6 companion materials per segment, KFType* keyframes,
+  draft_meta_info.json registration, BOM-less UTF-8 mandatory). `ImgToVideo.CapCut`
+  exporter + `ImgToVideo.Cli export-capcut` verified with a real 4-clip draft opened in
+  CapCut 9.4.0.4015. Deferred: transform units (pans static), transitions (cuts — needs a
+  reference draft with one), captions. See docs/spike-capcut-draft.md.
 - **Queue:** (1) reconcile the test project (narration.srt has 115 cues, shotlist.json
   still targets 370 — re-plan with the new brief), (2) full LLM re-plan of the doubled
-  script (~100 images expected), (3) CapCut tier-2 spike LAST (docs/spike-capcut-draft.md),
-  optional/minor: global app defaults layer, narration-tied PV reveals, transitionitem.
+  script (~100 images expected), optional/minor: global app defaults layer,
+  narration-tied PV reveals, transitionitem spike, .gitignore testdata/.
 
 ## One-pass LLM flow (2026-09-12 afternoon) — replaces assets.json
 

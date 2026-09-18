@@ -4,12 +4,15 @@
 //   ImgToVideo.Cli render-final <projectFolder> [--preview]
 //   ImgToVideo.Cli plan <projectFolder>
 //   ImgToVideo.Cli export-premiere <projectFolder>
+//   ImgToVideo.Cli export-capcut <projectFolder>
 //
 // render-final produces out\final\final.mp4 (+ captions.srt); --preview
 // renders the fast draft to out\preview.mp4 instead. export-premiere writes
-// out\premiere.xml (FCP7 XML with motion keyframes).
+// out\premiere.xml (FCP7 XML with motion keyframes); export-capcut writes
+// out\capcut\<name>\ (CapCut draft folder — copy into CapCut's draft root).
 
 using System.Text.Json;
+using ImgToVideo.CapCut;
 using ImgToVideo.Core.Analysis;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
@@ -26,6 +29,7 @@ if (args.Length < 2)
           ImgToVideo.Cli render-final <projectFolder> [--preview]
           ImgToVideo.Cli plan <projectFolder>
           ImgToVideo.Cli export-premiere <projectFolder>
+          ImgToVideo.Cli export-capcut <projectFolder>
         """);
     return 2;
 }
@@ -34,7 +38,7 @@ var command = args[0].ToLowerInvariant();
 var folder = Path.GetFullPath(args[1]);
 var preview = args.Contains("--preview", StringComparer.OrdinalIgnoreCase);
 
-if (command is not ("render-final" or "plan" or "export-premiere"))
+if (command is not ("render-final" or "plan" or "export-premiere" or "export-capcut"))
 {
     Console.Error.WriteLine($"unknown command: {command}");
     return 2;
@@ -104,6 +108,20 @@ if (command == "export-premiere")
         new PremiereExportOptions { IncludeMotionKeyframes = true });
     File.WriteAllText(xmlPath, xml);
     Console.WriteLine($"premiere xml: {xmlPath} — import it into Premiere (File > Import).");
+    return 0;
+}
+
+if (command == "export-capcut")
+{
+    var draftName = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar));
+    var draftFolder = Path.Combine(outDir, "capcut", draftName);
+    var contentPath = CapCutDraftExporter.Export(planned.Timeline, inventory.AllImages, draftFolder);
+    var draftRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "CapCut", "User Data", "Projects", "com.lveditor.draft");
+    Console.WriteLine($"capcut draft: {draftFolder}");
+    Console.WriteLine($"copy the folder into {draftRoot} (CapCut closed), then open it in CapCut.");
+    Console.WriteLine($"draft content: {contentPath}");
     return 0;
 }
 
