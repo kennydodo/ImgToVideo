@@ -125,7 +125,7 @@ public class ShotListTests
     }
 
     [Fact]
-    public void Likely_typos_are_rejected_with_a_suggestion()
+    public void Likely_typos_are_flagged_but_no_longer_block()
     {
         var issues = new List<ValidationIssue>();
         var manifest = Expand(
@@ -133,8 +133,13 @@ public class ShotListTests
             issues,
             imageFiles: ["S01_01_SCN.png", "S01_02_CU_ZI.png"]);
 
-        Assert.Null(manifest);
-        Assert.Contains(issues, i => i.Severity == ValidationSeverity.Error &&
+        // With GENERATE-AHEAD a typo no longer blocks the plan: the shot becomes
+        // a generate request (a wrong-prompt near-duplicate is visible in
+        // review), and the suggestion stays as INFO — adjacent sub-beat names
+        // from splits (S08_04 next to S08_03) are legitimate slots, not typos.
+        Assert.NotNull(manifest);
+        Assert.Equal("S01_01_SCN_ZI.png", manifest!.Assets[0].File);
+        Assert.Contains(issues, i => i.Severity == ValidationSeverity.Info &&
             i.Code == "SHOTLIST_ASSET_TYPO" && i.Message.Contains("S01_01_SCN"));
     }
 

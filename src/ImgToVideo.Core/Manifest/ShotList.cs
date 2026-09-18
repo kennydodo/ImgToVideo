@@ -350,12 +350,15 @@ public static class ShotListExpander
 
                 if (suggestion.Stem is not null && suggestion.Distance <= TypoDistanceThreshold)
                 {
+                    // Advisory only: with GENERATE-AHEAD a real typo just produces
+                    // a wrong-prompt generate (visible in review), while adjacent
+                    // sub-beat names from splits (S08_04 next to S08_03) are
+                    // legitimate next slots, not typos — they must not block.
                     issues.Add(new ValidationIssue(
-                        ValidationSeverity.Error, "SHOTLIST_ASSET_TYPO",
+                        ValidationSeverity.Info, "SHOTLIST_ASSET_TYPO",
                         $"Shot {n + 1}: asset \"{entry.Asset}\" looks like a typo of " +
-                        $"\"{suggestion.Stem}\" — fix the name (or if it really is a new image, use the " +
-                        "generation-spec filename for it)."));
-                    continue;
+                        $"\"{suggestion.Stem}\" — if it really is a new image, keep the name " +
+                        "and generate it; otherwise fix the name."));
                 }
 
                 // Not on disk and not a typo: a GENERATE request. The filename
