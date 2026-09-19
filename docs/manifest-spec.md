@@ -105,8 +105,12 @@ yet are kept as GENERATE requests.
 
 ```json
 {
+  "refs": {
+    "david_face": "D:/Refs/david_face.png",
+    "conference_room": "D:/Refs/conference_room.png"
+  },
   "images": [
-    { "file": "S04_03_HYB_ST.png", "prompt": "what to draw (batch app input)" }
+    { "file": "S04_03_HYB_ST.png", "prompt": "what to draw (batch app input)", "refs": ["david_face"] }
   ],
   "shots": [
     { "cues": "12-15", "asset": "S04_03_HYB_ST.png", "motion": "ST" }
@@ -120,6 +124,29 @@ not-yet-generated files are fine), optional `motion` (string shorthand or the
 full manifest motion object), optional `transition` (`CUT|CROSSFADE|DIP|
 DIP_WHITE` — shorthand uses the project transition duration), optional
 `framing` (`wide|medium|close|detail`), optional `scene`, optional `shot_id`.
+
+**Reference images (`refs`) — v2 only (shotlist path), added 2026-09-19:**
+
+- Top-level `refs`: registry mapping stable names → reference image paths
+  (forward slashes recommended). Declared once per shotlist; the LLM may use
+  only names from the supplied character/reference bible. Optional — omit the
+  registry entirely when no bible exists.
+- `images[].refs`: optional array of registry names. Order is meaningful —
+  the FIRST ref is the dominant subject (the identity the generator must
+  preserve hardest). Most images carry none; INF/PROC diagrams never do.
+- Generation-time only: the planner, `visual_manifest.json`, timeline and the
+  deterministic core never read refs — the shotlist is the record, and
+  `export-batch` is the only consumer.
+- Validation split: the shotlist parser validates NAMES only (pure schema
+  check, no disk access) — a name not in the registry, or within edit distance
+  ≤ 2 of one, is WARNING `SHOTLIST_REF_UNKNOWN` with the suggested name. File
+  existence is NOT checked at analyze; `export-batch` resolves names → paths,
+  copies the resolved refs onto each card in `image-batch.json` (provenance —
+  the exact regeneration recipe), and stamps cards whose ref files are missing
+  with `MISSING_REF` so the gap is unmissable in the batch app.
+- Fully additive: no registry or no per-image refs = unchanged behavior; all
+  pre-refs shotlists stay valid. The Flow backend accepts multiple reference
+  images per card (confirmed 2026-09-19).
 
 Resolution rules:
 - Existing image: exact filename (case-insensitive) or stem match.

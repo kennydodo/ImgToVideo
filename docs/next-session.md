@@ -24,6 +24,28 @@ exact match (delta 0).
   import `out\premiere.xml` into Premiere, open the CapCut draft. The 14 re-rendered
   images are fresh content under renamed files — spot-check them in the final.
 
+## 2026-09-19 (evening) — refs design settled; docs only, implementation QUEUED
+
+shotlist v2 gains reference images for character/location continuity
+(Flow backend confirmed to accept multiple ref images per card):
+
+- **Schema**: top-level `"refs"` registry (name → path, forward slashes;
+  names from the supplied character bible only) + optional `"images[].refs"`
+  array of registry names — first ref = dominant subject; most images carry
+  none; INF/PROC never do. Fully additive, pre-refs shotlists stay valid.
+- **Docs done**: brief §6 (registry + attach rules), §7 (JSON shape + sheet
+  lines carry `· refs:`), §12 (checklist item 8); manifest-spec.md shotlist
+  section (schema + validation split).
+- **Validation split (agreed)**: ShotListParser validates NAMES only —
+  pure, no disk access — WARNING `SHOTLIST_REF_UNKNOWN` with nearest-name
+  suggestion (edit distance ≤ 2). Analyze stays SILENT about ref files.
+  `export-batch` resolves names → paths onto image-batch.json cards and
+  stamps missing files `MISSING_REF`.
+- **TODO (implementation)**: (1) parser name validation, (2) export-batch
+  ref resolution + MISSING_REF stamping, (3) Flow Driver multi-image
+  pass-through. Planner/timeline untouched — refs are generation-time only.
+  Refs are v2/shotlist-only; v1 manifests unaffected.
+
 ## 2026-09-19 — START HERE (completed same morning — see section above): fix the image-batch delta (22 → 8)
 
 **State**: TestWhisperRader has the NEW 81-image/81-shot shotlist (the 8 SHOT_HOLD_LONG

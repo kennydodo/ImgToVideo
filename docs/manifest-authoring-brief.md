@@ -81,6 +81,12 @@ Motion must vary. A video where every shot is ZI has the same problem as one whe
 
 Use ONLY the supplied channel visual style instructions and character bible. Do not hardcode any art style. The workflow must work across nature, health, science, history, finance, business, documentary, and educational genres. Preserve recurring characters, environments, and objects.
 
+### Reference images (refs)
+
+When a character/reference bible is supplied, declare its entries ONCE in a top-level `"refs"` registry inside shotlist.json — the names exactly as the bible gives them, the paths exactly as supplied (forward slashes are fine). Never invent a ref name, never paraphrase one, and never write a raw path on an image entry — image entries carry names only.
+
+Attach `"refs"` to an image entry only when the image actually shows that person, place, or object: a face ref wherever that character's face is visible, a location ref on establishing shots of that place. The FIRST ref is the dominant subject — the identity the generator must preserve hardest. INF/PROC diagrams and object-only close-ups get none. Omit `refs` entirely when none apply — most images carry none, and that is correct. If no reference bible exists, omit the whole `"refs"` registry.
+
 ## SECTION 7 — THE TWO OUTPUT DOCUMENTS
 
 Output exactly two documents, in this order. **Document 2 comes FIRST** (it is the irreplaceable assembler artifact; the sheet in Document 1 is derived from it — if truncation ever hits, the JSON survives and the sheet can be rebuilt).
@@ -92,12 +98,17 @@ Raw JSON. No fences, no commentary. Exactly this shape:
 ```
 {
   "style": "<MASTER PROMPT: all constant instructions — art style, palette, rendering quality, line treatment, tone, text policy, character continuity, recurring objects. Individual prompts must not repeat any of this.>",
+  "refs": {
+    "david_face": "D:/Refs/david_face.png",
+    "conference_room": "D:/Refs/conference_room.png"
+  },
   "shots": [
     { "cues": "7-9", "asset": "S01_03_SCN_PR.png", "scene": "S01", "motion": "PR" },
     { "cues": "10-12", "asset": "S01_04_INF_ST.png", "scene": "S01", "motion": "ST", "transition": "CROSSFADE" }
   ],
   "images": [
-    { "file": "S01_03_SCN_PR.png", "prompt": "<content only — as detailed as the image needs>" }
+    { "file": "S01_03_SCN_PR.png", "prompt": "<content only — as detailed as the image needs>", "refs": ["david_face", "conference_room"] },
+    { "file": "S01_04_INF_ST.png", "prompt": "<content only — as detailed as the image needs>" }
   ]
 }
 ```
@@ -108,6 +119,7 @@ Raw JSON. No fences, no commentary. Exactly this shape:
 - `motion`: ST | ZI | ZO | PL | PR | PU | PD | PV — **must match the motion code in the asset's own filename** (the image was composed for that motion and overscan). Deviate only with a deliberate reason. **ST is rare and special:** use it only on very short holds — roughly 1–2 cues (~2–4 seconds) — and cap it at ~10% of shots, reserving it for compositions that cannot tolerate overscan (tight symmetric close-ups, exact diagrams). Every shot that holds longer must carry motion. Assign motion with composition per the table in Section 5 and vary the codes — no single motion code above ~40% of shots.
 - `transition`: omit for cuts (default). Allowed values: CROSSFADE, DIP, DIP_WHITE. Use sparingly — at main-beat boundaries. Omit on the LAST shot entirely.
 - `images` contains ONLY new files (one entry each, no duplicates). Reused shots do not appear here.
+- `refs` (top level): the registry itself — include it only when a reference bible was supplied, and put every bible entry in it. `refs` (per image, optional): array of names FROM the registry, only where the subject is actually visible, first name = dominant subject. An image with no refs simply omits the field.
 - Do not include: master_prompt, beats, subbeats, summaries, narration_text, framing, start_ms/end_ms, video/fps/schema_version — the assembler derives or ignores all of them, and they waste your output budget.
 
 ### DOCUMENT 1 (output second) — IMAGE BATCH SHEET
@@ -126,13 +138,13 @@ Larger canvases are fine if the aspect and overscan direction are preserved. Alw
 
 === S01 ===
 S01_01_SCN_ZI.png [2304x1296] — <prompt from images[]>
-S01_02_CU_ST.png [2304x1296] — <prompt>
+S01_02_CU_ST.png [2304x1296] — <prompt> · refs: david_face
 
 === S02 ===
 ...
 ```
 
-Group by main beat, in beat order. One line per image: filename, canvas, prompt. Every image in the JSON appears here exactly once.
+Group by main beat, in beat order. One line per image: filename, canvas, prompt — append `· refs: name1, name2` ONLY when the image entry carries refs (names, in the same order as the JSON). Every image in the JSON appears here exactly once.
 
 ## SECTION 8 — TEXT INSIDE IMAGES
 
@@ -160,3 +172,4 @@ Before output, verify:
 5. ST appears only on ~1–2-cue shots, capped at ~10% of shots, and only where the composition cannot tolerate overscan. Every other shot carries motion that matches its composition and canvas (a PR shot has the subject in the left third on a wide canvas; a ZI shot is centered with overscan; etc.). No single motion code exceeds ~40% of shots. Every motion code in `shots[].motion` matches the motion code in that shot's own filename. Transitions only CROSSFADE/DIP/DIP_WHITE, sparingly, never on the last shot.
 6. Prompts are as detailed as the image needs and describe only what makes this image different from every other: subject, action, composition, spatial layout, where the scene's light comes from. Zero style language anywhere in a prompt — no palette, no grade, no "photorealistic", "cinematic", film grain, or mood adjectives belonging to the channel. The master prompt (`style` field) is the only place style is stated; the batch app merges master + card at generation time.
 7. Document 2 (JSON) output first, raw and complete; Document 1 second, grouped by beat, master prompt on top.
+8. Every `refs` name on an image exists in the top-level `refs` registry, spelled exactly as the reference bible supplies it; refs appear only where the subject is actually visible; first ref is the dominant subject; INF/PROC diagrams carry none. Omit the whole registry when no reference bible exists.
