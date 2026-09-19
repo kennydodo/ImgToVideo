@@ -2,7 +2,29 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
-## 2026-09-19 — START HERE: fix the image-batch delta (22 → 8)
+## 2026-09-19 (morning) — DONE: image-batch delta closed, full pipeline rendered
+
+The "fix the delta (22 → 8)" plan below is COMPLETE — with one twist: the 22-card
+batch had already been generated overnight (12:33 AM), including the 14 re-renders
+under the renamed filenames, so the LLM re-prompt (step 2) and delta-recompute
+(step 3) became moot. State now: all 81 shotlist assets on disk, disk ↔ shotlist
+exact match (delta 0).
+
+- **Brief edit (step 1) DONE**: docs/manifest-authoring-brief.md §9 now says sub-beat
+  numbers are stable identifiers — never rename/renumber; new images take the next
+  unused index in their scene (gaps fine). **Uncommitted** — commit with this note.
+- **Diagnostics CLEAN**: `plan` → 14 scenes, 81 shots, 81/81 assets used, zero
+  missing/unused, zero GENERATE hints, zero SHOT_HOLD_LONG. Only warning is the
+  benign tail-pin (last shot extended 15 frames to audio end).
+- **Rendered**: preview (960×540, 23:59.39, narration muxed) + final
+  (2560×1440, 452 MB, 23:59.39) + captions.srt + premiere.xml + CapCut draft
+  (`out\capcut\ImgToVideoTestWhisperRader` — copy into CapCut drafts folder while
+  CapCut is CLOSED, then open).
+- **Manual checks left for Kehinde**: watch `out\preview.mp4` / `out\final\final.mp4`,
+  import `out\premiere.xml` into Premiere, open the CapCut draft. The 14 re-rendered
+  images are fresh content under renamed files — spot-check them in the final.
+
+## 2026-09-19 — START HERE (completed same morning — see section above): fix the image-batch delta (22 → 8)
 
 **State**: TestWhisperRader has the NEW 81-image/81-shot shotlist (the 8 SHOT_HOLD_LONG
 splits, done by the LLM) + 59 generated images on disk + 22-card delta in

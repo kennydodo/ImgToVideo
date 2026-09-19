@@ -140,7 +140,7 @@ Follow the supplied channel text policy. If the project says no generated text: 
 
 ## SECTION 9 — FILENAMING
 
-`S##_##_TYPE_MOTION.png` — main beat, sub-beat, TYPE code, MOTION code. Example: `S04_03_INF_ST.png`. Sequential sub-beat numbering per beat, uppercase codes, `.png` lowercase. Every generated filename is unique. Reused shots reference the exact existing filename.
+`S##_##_TYPE_MOTION.png` — main beat, sub-beat, TYPE code, MOTION code. Example: `S04_03_INF_ST.png`. Sub-beat numbers are stable identifiers: never rename or renumber an existing entry — new images allocate the next unused index in their scene (gaps are fine; nothing orders by filename, the assembler sequences by cue ranges). Uppercase codes, `.png` lowercase. Every generated filename is unique. Reused shots reference the exact existing filename.
 
 ## SECTION 10 — TIMING
 
