@@ -131,9 +131,14 @@ DIP_WHITE` — shorthand uses the project transition duration), optional
   (forward slashes recommended). Declared once per shotlist; the LLM may use
   only names from the supplied character/reference bible. Optional — omit the
   registry entirely when no bible exists.
-- `images[].refs`: optional array of registry names. Order is meaningful —
-  the FIRST ref is the dominant subject (the identity the generator must
-  preserve hardest). Most images carry none; INF/PROC diagrams never do.
+- `images[].refs`: optional array of registry names, chosen to fit the beat —
+  only what that image actually shows, never the whole library. Order is
+  meaningful — the FIRST ref is the dominant subject (the identity the
+  generator must preserve hardest). Hard cap: **10 per image** (the Flow
+  generator's maximum). Most images carry none; INF/PROC diagrams never do.
+  When the bible supplies a recurring character, the plan must actually cast
+  that character somewhere — a faceless plan ignoring a supplied character is
+  an authoring failure.
 - Generation-time only: the planner, `visual_manifest.json`, timeline and the
   deterministic core never read refs — the shotlist is the record, and
   `export-batch` is the only consumer.
