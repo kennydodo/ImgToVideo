@@ -31,8 +31,11 @@ public static class ShotListParser
 
     /// <summary>Parses the LLM format: a shots array plus an optional images
     /// array (file → prompt) that doubles as the batch image app's input.
-    /// Throws JsonException/InvalidDataException on a broken file.</summary>
-    public static ShotListDocument Parse(string json, List<ValidationIssue> issues)
+    /// Throws JsonException/InvalidDataException on a broken file. When a
+    /// limit is positive, prompts over it emit a WARNING with the actual
+    /// count — the batch app's boxes truncate or fail beyond them.</summary>
+    public static ShotListDocument Parse(string json, List<ValidationIssue> issues,
+        int masterPromptMaxChars = 0, int promptMaxChars = 0)
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -51,6 +54,14 @@ public static class ShotListParser
             !string.IsNullOrWhiteSpace(styleElement.GetString()))
         {
             style = styleElement.GetString()!.Trim();
+            if (masterPromptMaxChars > 0 && style.Length > masterPromptMaxChars)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "SHOTLIST_MASTER_PROMPT_LONG",
+                    $"shotlist.json: the master prompt (style) is {style.Length} characters — the batch app's " +
+                    $"master box holds {masterPromptMaxChars}. Trim it to fit (cut adjectives and examples; " +
+                    "keep the character-identity sentences)."));
+            }
         }
 
         if (root.TryGetProperty("images", out var imagesElement) &&
@@ -77,6 +88,14 @@ public static class ShotListParser
                     !string.IsNullOrWhiteSpace(promptElement.GetString()))
                 {
                     prompt = promptElement.GetString()!.Trim();
+                    if (promptMaxChars > 0 && prompt.Length > promptMaxChars)
+                    {
+                        issues.Add(new ValidationIssue(
+                            ValidationSeverity.Warning, "SHOTLIST_PROMPT_LONG",
+                            $"shotlist.json: the prompt for \"{fileElement.GetString()!.Trim()}\" is {prompt.Length} " +
+                            $"characters — the batch app's card box holds {promptMaxChars}. Trim it to fit " +
+                            "(cut composition boilerplate; keep the action and layout)."));
+                    }
                 }
 
                 prompts.TryAdd(fileElement.GetString()!.Trim(), prompt);

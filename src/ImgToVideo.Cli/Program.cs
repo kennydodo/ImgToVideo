@@ -32,6 +32,7 @@ if (args.Length < 2)
           ImgToVideo.Cli plan <projectFolder>
           ImgToVideo.Cli export-premiere <projectFolder>
           ImgToVideo.Cli export-capcut <projectFolder>
+          ImgToVideo.Cli export-batch <projectFolder>
         """);
     return 2;
 }
@@ -63,6 +64,81 @@ if (configErrors.Count > 0)
     foreach (var e in configErrors)
         Console.Error.WriteLine($"  - {e}");
     return 2;
+}
+
+if (command == "export-batch")
+{
+    // The image-generation delta: plan images[] minus what already exists in
+    // images\, as a batch JSON (master prompt + canvas per motion code) for
+    // Flow/Renderly. Reads the shotlist directly — no audio, images or
+    // planner required (a brand-new project has none of those yet).
+    var shotlistPath = Path.Combine(folder, "shotlist.json");
+    if (!File.Exists(shotlistPath))
+    {
+        Console.Error.WriteLine("no shotlist.json in the project folder");
+        return 1;
+    }
+
+    var parseIssues = new List<ValidationIssue>();
+    ImgToVideo.Core.Manifest.ShotListParser.Parse(File.ReadAllText(shotlistPath), parseIssues,
+        options.Shotlist.MasterPromptMaxChars, options.Shotlist.PromptMaxChars);
+    ReportIssues(parseIssues);
+
+    var batchShotlist = JsonNode.Parse(File.ReadAllText(shotlistPath));
+    var imagesDir = Path.Combine(folder, "images");
+    var onDisk = Directory.Exists(imagesDir)
+        ? Directory.GetFiles(imagesDir, "*.png").Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase)
+        : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    var canvas = new Dictionary<string, string>
+    {
+        ["ST"] = "2304x1296", ["ZI"] = "2304x1296", ["ZO"] = "2304x1296",
+        ["PL"] = "2880x1296", ["PR"] = "2880x1296",
+        ["PU"] = "2304x2160", ["PD"] = "2304x2160",
+        ["PV"] = "3840x1296",
+    };
+
+    var missing = new JsonArray();
+    foreach (var img in batchShotlist["images"]!.AsArray())
+    {
+        var file = (string?)img!["file"] ?? "";
+        if (onDisk.Contains(file))
+        {
+            continue;
+        }
+
+        var motion = file.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+            ? file[..^4].Split('_')[^1]
+            : file.Split('_')[^1];
+        missing.Add(new JsonObject
+        {
+            ["file"] = file,
+            ["canvas"] = canvas.GetValueOrDefault(motion, "2304x1296"),
+            ["motion"] = motion,
+            ["prompt"] = (string?)img["prompt"] ?? "",
+        });
+    }
+
+    var batchOutDir = Path.Combine(folder, "out");
+    Directory.CreateDirectory(batchOutDir);
+    var batch = new JsonObject
+    {
+        ["note"] = "Missing images only — regenerate into images\\. Master prompt goes in the batch app's master box once.",
+        ["master_prompt"] = (string?)batchShotlist["style"] ?? "",
+        ["count"] = missing.Count,
+        ["images"] = missing,
+    };
+
+    var batchPath = Path.Combine(batchOutDir, "image-batch.json");
+    File.WriteAllText(batchPath, batch.ToJsonString(new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        // prompts are hand-read and hand-pasted: keep em-dashes etc. literal
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    }), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    Console.WriteLine($"missing images: {missing.Count} of {batchShotlist["images"]!.AsArray().Count} plan entries");
+    Console.WriteLine($"batch json: {batchPath}");
+    return 0;
 }
 
 var inventory = ProjectLoader.Load(folder, options);
@@ -124,73 +200,6 @@ if (command == "export-capcut")
     Console.WriteLine($"capcut draft: {draftFolder}");
     Console.WriteLine($"copy the folder into {draftRoot} (CapCut closed), then open it in CapCut.");
     Console.WriteLine($"draft content: {contentPath}");
-    return 0;
-}
-
-if (command == "export-batch")
-{
-    // The image-generation delta: plan images[] minus what already exists in
-    // images\, as a batch JSON (master prompt + canvas per motion code) for
-    // Flow/Renderly. Reads the shotlist directly — no render involved.
-    var shotlistPath = Path.Combine(folder, "shotlist.json");
-    if (!File.Exists(shotlistPath))
-    {
-        Console.Error.WriteLine("no shotlist.json in the project folder");
-        return 1;
-    }
-
-    var shotlist = JsonNode.Parse(File.ReadAllText(shotlistPath));
-    var imagesDir = Path.Combine(folder, "images");
-    var onDisk = Directory.Exists(imagesDir)
-        ? Directory.GetFiles(imagesDir, "*.png").Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase)
-        : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-    var canvas = new Dictionary<string, string>
-    {
-        ["ST"] = "2304x1296", ["ZI"] = "2304x1296", ["ZO"] = "2304x1296",
-        ["PL"] = "2880x1296", ["PR"] = "2880x1296",
-        ["PU"] = "2304x2160", ["PD"] = "2304x2160",
-        ["PV"] = "3840x1296",
-    };
-
-    var missing = new JsonArray();
-    foreach (var img in shotlist["images"]!.AsArray())
-    {
-        var file = (string?)img!["file"] ?? "";
-        if (onDisk.Contains(file))
-        {
-            continue;
-        }
-
-        var motion = file.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
-            ? file[..^4].Split('_')[^1]
-            : file.Split('_')[^1];
-        missing.Add(new JsonObject
-        {
-            ["file"] = file,
-            ["canvas"] = canvas.GetValueOrDefault(motion, "2304x1296"),
-            ["motion"] = motion,
-            ["prompt"] = (string?)img["prompt"] ?? "",
-        });
-    }
-
-    var batch = new JsonObject
-    {
-        ["note"] = "Missing images only — regenerate into images\\. Master prompt goes in the batch app's master box once.",
-        ["master_prompt"] = (string?)shotlist["style"] ?? "",
-        ["count"] = missing.Count,
-        ["images"] = missing,
-    };
-
-    var batchPath = Path.Combine(outDir, "image-batch.json");
-    File.WriteAllText(batchPath, batch.ToJsonString(new JsonSerializerOptions
-    {
-        WriteIndented = true,
-        // prompts are hand-read and hand-pasted: keep em-dashes etc. literal
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    }), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-    Console.WriteLine($"missing images: {missing.Count} of {shotlist["images"]!.AsArray().Count} plan entries");
-    Console.WriteLine($"batch json: {batchPath}");
     return 0;
 }
 

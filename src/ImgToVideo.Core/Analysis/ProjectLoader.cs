@@ -106,7 +106,9 @@ public static class ProjectLoader
             ImgToVideo.Core.Manifest.ShotListDocument document;
             try
             {
-                document = ImgToVideo.Core.Manifest.ShotListParser.Parse(File.ReadAllText(shotListPath), issues);
+                document = ImgToVideo.Core.Manifest.ShotListParser.Parse(
+                    File.ReadAllText(shotListPath), issues,
+                    options.Shotlist.MasterPromptMaxChars, options.Shotlist.PromptMaxChars);
             }
             catch (InvalidDataException e)
             {

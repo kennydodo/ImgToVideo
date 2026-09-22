@@ -46,6 +46,51 @@ shotlist v2 gains reference images for character/location continuity
   pass-through. Planner/timeline untouched — refs are generation-time only.
   Refs are v2/shotlist-only; v1 manifests unaffected.
 
+## 2026-09-20 (morning) — refs authoring VALIDATED end to end
+
+- First real shotlist for PERSONAL FINANCE initially shipped with zero refs
+  and a fully faceless plan (root cause: bible never pasted + brief didn't
+  force casting). Fixed with: **bible gate** in the brief (LLM's first reply
+  must request a missing bible; registry mandatory once supplied — 6234dba),
+  selective-use + 10-ref-per-image cap + casting rule (fa8fd98), and a
+  **combined per-channel planning prompt** with the bible pre-embedded:
+  `E:\YOUTUBE\PERSONAL FINANCE\planning-prompt.txt` (auto-generated from
+  master brief + ref-bible.txt — REGENERATE after any brief change).
+- Flow: paste planning-prompt.txt → SRT → style.md. Validated working by
+  Kehinde 2026-09-20.
+- **Still open**: ref-bible.txt has two `<<< FILL IN >>>` placeholders
+  (Dana, Conference) — also mirrored inside planning-prompt.txt; fill both
+  or regenerate. Implementation TODOs above still queued.
+
+## 2026-09-22 — prompt length budgets (analyzer WARNING) implemented
+
+- Flow's boxes cap text: master prompt ≤ 1500 chars, each card prompt ≤
+  2400. Brief now teaches the budgets (§7 shape + images bullet, §12
+  item 6 self-check, word-based since LLMs can't count chars).
+- **Analyzer check SHIPPED**: `ShotlistOptions` (imgtovideo.json group
+  `shotlist`: `master_prompt_max_chars` 1500 / `prompt_max_chars` 2400,
+  0 disables; ProjectOptions.Validate rejects negatives).
+  `ShotListParser.Parse` takes optional limits and emits WARNING
+  `SHOTLIST_MASTER_PROMPT_LONG` (once, with actual count) /
+  `SHOTLIST_PROMPT_LONG` (per offending image, with file name + count) in
+  deterministic parse order. ProjectLoader passes the configured values —
+  the app's ANALYZE and `Cli plan` both surface them. ImageGen keeps
+  limits off for now. Tests: 3 new in ShotListTests (master warn with
+  counts, per-entry warn naming the file, disabled/under-limit silent).
+- **Still queued with the refs TODOs**: export-batch hard stop (ERROR)
+  for over-limit entries — the last gate before Flow; plus the refs
+  implementation items (parser name validation, ref resolution +
+  MISSING_REF stamping, Flow Driver pass-through).
+- **export-batch decoupled from the planner (2026-09-22)**: it previously
+  ran the full plan first and aborted on `MANIFEST_NO_SHOTS` when a
+  brand-new project had zero images on disk — chicken-and-egg (no batch
+  without images, no images without the batch). It now reads only
+  shotlist.json (+ optional images\), needs no audio/images/planner, runs
+  the shotlist parse with the length limits so its output carries the
+  new WARNINGs, and writes out\image-batch.json. Verified on PERSONAL
+  FINANCE "These 10 Things…": 85/85 missing cards written; LLM had
+  self-regulated to style 1499/1500 chars, longest prompt 677/2400.
+
 ## 2026-09-19 — START HERE (completed same morning — see section above): fix the image-batch delta (22 → 8)
 
 **State**: TestWhisperRader has the NEW 81-image/81-shot shotlist (the 8 SHOT_HOLD_LONG

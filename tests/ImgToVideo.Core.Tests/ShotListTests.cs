@@ -19,10 +19,11 @@ public class ShotListTests
 
     private static IReadOnlyList<string> ImageFiles() => ["S01_01_SCN.png", "S01_02_CU_ZI.png"];
 
-    private static (ShotListDocument Document, List<ValidationIssue> Issues) Parse(string json)
+    private static (ShotListDocument Document, List<ValidationIssue> Issues) Parse(
+        string json, int masterPromptMaxChars = 0, int promptMaxChars = 0)
     {
         var issues = new List<ValidationIssue>();
-        return (ShotListParser.Parse(json, issues), issues);
+        return (ShotListParser.Parse(json, issues, masterPromptMaxChars, promptMaxChars), issues);
     }
 
     private static VisualManifest? Expand(
@@ -55,6 +56,49 @@ public class ShotListTests
         Assert.Equal("A walker at dawn.", document.Prompts["S01_01_SCN.png"]);
         Assert.Equal(string.Empty, document.Prompts["S01_02_CU_ZI.png"]);
         Assert.DoesNotContain(issues, i => i.Severity == ValidationSeverity.Error);
+    }
+
+    [Fact]
+    public void Over_limit_master_prompt_warns_with_actual_count()
+    {
+        var style = new string('s', 1600);
+        var (_, issues) = Parse(
+            "{\"style\": \"" + style + "\", \"shots\": [{\"cues\": \"1\", \"asset\": \"S01_01_SCN.png\"}]}",
+            masterPromptMaxChars: 1500);
+
+        var issue = Assert.Single(issues, i => i.Code == "SHOTLIST_MASTER_PROMPT_LONG");
+        Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+        Assert.Contains("1600", issue.Message);
+        Assert.Contains("1500", issue.Message);
+    }
+
+    [Fact]
+    public void Over_limit_image_prompt_warns_per_entry_with_the_file_name()
+    {
+        var prompt = new string('p', 2500);
+        var (_, issues) = Parse(
+            "{\"images\": [{\"file\": \"S01_01_SCN.png\", \"prompt\": \"" + prompt + "\"}, " +
+            "{\"file\": \"S01_02_CU_ZI.png\", \"prompt\": \"short\"}], " +
+            "\"shots\": [{\"cues\": \"1\", \"asset\": \"S01_01_SCN.png\"}]}",
+            promptMaxChars: 2400);
+
+        var issue = Assert.Single(issues, i => i.Code == "SHOTLIST_PROMPT_LONG");
+        Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+        Assert.Contains("S01_01_SCN.png", issue.Message);
+        Assert.Contains("2500", issue.Message);
+        Assert.DoesNotContain(issues, i => i.Message.Contains("S01_02_CU_ZI.png\" is 2"));
+    }
+
+    [Fact]
+    public void Prompt_length_checks_are_disabled_when_limits_are_zero_or_not_exceeded()
+    {
+        var json = "{\"style\": \"short style\", \"images\": [{\"file\": \"S01_01_SCN.png\", \"prompt\": \"short\"}], " +
+                   "\"shots\": [{\"cues\": \"1\", \"asset\": \"S01_01_SCN.png\"}]}";
+
+        Assert.DoesNotContain(Parse(json, masterPromptMaxChars: 0, promptMaxChars: 0).Issues,
+            i => i.Code is "SHOTLIST_MASTER_PROMPT_LONG" or "SHOTLIST_PROMPT_LONG");
+        Assert.DoesNotContain(Parse(json, masterPromptMaxChars: 1500, promptMaxChars: 2400).Issues,
+            i => i.Code is "SHOTLIST_MASTER_PROMPT_LONG" or "SHOTLIST_PROMPT_LONG");
     }
 
     [Fact]

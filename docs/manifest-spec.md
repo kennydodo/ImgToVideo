@@ -162,6 +162,12 @@ Resolution rules:
 - Close match to an existing filename (edit distance ≤ 2): ERROR
   `SHOTLIST_ASSET_TYPO` with the suggested correct name.
 - Unknown cue numbers: ERROR `SHOTLIST_CUE_UNKNOWN`.
+- Prompt length budgets: `shotlist.master_prompt_max_chars` (default 1500)
+  and `shotlist.prompt_max_chars` (default 2400) in `imgtovideo.json` — 0
+  disables a check. Over-limit entries emit WARNING
+  `SHOTLIST_MASTER_PROMPT_LONG` / `SHOTLIST_PROMPT_LONG` with the actual
+  count and the file name; the batch app's boxes cannot hold more, so trim
+  in the shotlist and re-analyze.
 
 Precedence: when present, `shotlist.json` wins; every ANALYZE expands it and
 regenerates `visual_manifest.json` on disk (edit the shotlist, not the
