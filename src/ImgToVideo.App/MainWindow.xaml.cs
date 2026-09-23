@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using ImgToVideo.Core.Analysis;
+using ImgToVideo.Core.Manifest;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
 using ImgToVideo.Core.Planning;
@@ -15,7 +16,7 @@ namespace ImgToVideo.App;
 
 public partial class MainWindow : Window
 {
-    private sealed record DiagnosticsRow(string Text, System.Windows.Media.SolidColorBrush TextBrush, System.Windows.Media.SolidColorBrush TintBrush);
+    private sealed record DiagnosticsRow(string Text, System.Windows.Media.SolidColorBrush TextBrush, System.Windows.Media.SolidColorBrush TintBrush, bool IsHeader = false);
 
     private enum StatusKind { Neutral, Success, Error }
 
@@ -410,7 +411,9 @@ public partial class MainWindow : Window
         TxtSubtitle.Text = _inventory.SrtFilePath is { } srt
             ? Path.GetFileName(srt) + "  ✓"
             : "missing  ✗";
-        TxtImages.Text = $"{_inventory.AllImages.Count}";
+        var present = _inventory.AllImages.Count;
+        var planned = _inventory.Manifest?.Assets.Count;
+        TxtImages.Text = planned is > 0 ? $"{present} / {planned}" : $"{present}";
         TxtScenes.Text = $"{_inventory.SceneGroups.Count}";
         TxtWarningCount.Text =
             $"{_inventory.Issues.Count(i => i.Severity == ValidationSeverity.Warning)}";
@@ -418,26 +421,78 @@ public partial class MainWindow : Window
 
     private void UpdateIssues(IEnumerable<ValidationIssue> issues)
     {
-        LstIssues.Items.Clear();
-        foreach (var issue in issues)
-        {
-            var (textBrush, tintBrush) = issue.Severity switch
-            {
-                ValidationSeverity.Error => ("BrushErrorFg", "BrushErrorBg"),
-                ValidationSeverity.Warning => ("BrushWarnFg", "BrushWarnBg"),
-                _ => ("BrushInfoFg", "BrushInfoBg"),
-            };
+        var allIssues = issues.ToList();
 
+        LstIssues.Items.Clear();
+        foreach (var group in DiagnosticsGrouper.Group(allIssues))
+        {
             LstIssues.Items.Add(new DiagnosticsRow(
-                $"[{issue.Severity.ToString().ToUpperInvariant()}] {issue.Message}",
-                (System.Windows.Media.SolidColorBrush)FindResource(textBrush),
-                (System.Windows.Media.SolidColorBrush)FindResource(tintBrush)));
+                $"{group.Title}  ({group.Summary()})",
+                (System.Windows.Media.SolidColorBrush)FindResource("BrushTextSecondary"),
+                (System.Windows.Media.SolidColorBrush)FindResource("BrushRecessed"),
+                IsHeader: true));
+
+            foreach (var issue in group.Issues)
+            {
+                var (textBrush, tintBrush) = issue.Severity switch
+                {
+                    ValidationSeverity.Error => ("BrushErrorFg", "BrushErrorBg"),
+                    ValidationSeverity.Warning => ("BrushWarnFg", "BrushWarnBg"),
+                    _ => ("BrushInfoFg", "BrushInfoBg"),
+                };
+
+                LstIssues.Items.Add(new DiagnosticsRow(
+                    $"[{issue.Severity.ToString().ToUpperInvariant()}] {issue.Message}",
+                    (System.Windows.Media.SolidColorBrush)FindResource(textBrush),
+                    (System.Windows.Media.SolidColorBrush)FindResource(tintBrush)));
+            }
         }
 
         if (_inventory is not null)
         {
             TxtWarningCount.Text =
-                $"{issues.Count(i => i.Severity == ValidationSeverity.Warning)}";
+                $"{allIssues.Count(i => i.Severity == ValidationSeverity.Warning)}";
+        }
+    }
+
+    private void BtnCopyMissing_Click(object sender, RoutedEventArgs e) =>
+        CopyMissing(plainText: false);
+
+    private void BtnCopyMissingText_Click(object sender, RoutedEventArgs e) =>
+        CopyMissing(plainText: true);
+
+    private void CopyMissing(bool plainText)
+    {
+        if (_projectFolder.Length == 0 || !Directory.Exists(_projectFolder))
+        {
+            ShowStatus("Select an existing project folder first.", StatusKind.Error);
+            return;
+        }
+
+        try
+        {
+            var result = MissingShotList.BuildForProject(_projectFolder);
+            if (result is null)
+            {
+                ShowStatus("No shotlist.json in this project — nothing to copy.", StatusKind.Error);
+                return;
+            }
+
+            if (result.Count == 0)
+            {
+                ShowStatus("No missing images — every planned image is on disk.", StatusKind.Success);
+                return;
+            }
+
+            System.Windows.Clipboard.SetText(plainText ? result.PlainText : result.Json);
+            var shape = plainText ? "plain text" : "shotlist JSON";
+            ShowStatus(
+                $"Copied {result.Count} missing image(s) as {shape} — paste into the image generator.",
+                StatusKind.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus("Copy missing failed: " + ex.Message, StatusKind.Error);
         }
     }
 

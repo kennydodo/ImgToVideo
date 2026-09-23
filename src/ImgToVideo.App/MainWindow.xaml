@@ -141,11 +141,21 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <Button Grid.Row="0" x:Name="BtnCopyDiagnostics" Content="COPY"
-                        Style="{StaticResource SecondaryButton}"
-                        HorizontalAlignment="Right" Margin="0,0,0,4"
-                        ToolTip="Copy all diagnostics to the clipboard (paste into the LLM chat to fix the shot list)."
-                        Click="BtnCopyDiagnostics_Click"/>
+                <StackPanel Grid.Row="0" Orientation="Horizontal"
+                            HorizontalAlignment="Right" Margin="0,0,0,4">
+                    <Button x:Name="BtnCopyMissing" Content="COPY MISSING (JSON)"
+                            Style="{StaticResource SecondaryButton}" Margin="0,0,6,0"
+                            ToolTip="Copy a shotlist-shaped JSON (style + refs + images) containing only the planned images that are not on disk yet — paste it straight into the image generator."
+                            Click="BtnCopyMissing_Click"/>
+                    <Button x:Name="BtnCopyMissingText" Content="COPY MISSING (TEXT)"
+                            Style="{StaticResource SecondaryButton}" Margin="0,0,6,0"
+                            ToolTip="Copy the same missing images as plain text: the master prompt, then one &quot;file&quot; / &quot;prompt&quot; line per image."
+                            Click="BtnCopyMissingText_Click"/>
+                    <Button x:Name="BtnCopyDiagnostics" Content="COPY"
+                            Style="{StaticResource SecondaryButton}"
+                            ToolTip="Copy all diagnostics to the clipboard (paste into the LLM chat to fix the shot list)."
+                            Click="BtnCopyDiagnostics_Click"/>
+                </StackPanel>
                 <ListBox Grid.Row="1" x:Name="LstIssues"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          ScrollViewer.HorizontalScrollBarVisibility="Auto">
@@ -166,7 +176,19 @@
                                 CornerRadius="4" Padding="8,4" Margin="0,2">
                             <TextBlock Text="{Binding Text}"
                                        Foreground="{Binding TextBrush}"
-                                       FontFamily="Consolas" FontSize="12"/>
+                                       FontFamily="Consolas" FontSize="12">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Normal"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsHeader}" Value="True">
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                                <Setter Property="Margin" Value="0,4,0,0"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
