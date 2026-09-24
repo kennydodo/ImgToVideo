@@ -271,6 +271,7 @@ public partial class MainWindow : Window
         clone.Render.PreviewHeight = clone.Output.Height;
         clone.Render.PreviewPreset = clone.Render.FinalPreset;
         clone.Render.PreviewCrf = clone.Render.FinalCrf;
+        clone.Render.PreviewBframes = clone.Render.FinalBframes;
         return clone;
     }
 

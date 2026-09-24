@@ -304,7 +304,8 @@ public static class PreviewRenderPlanFactory
 
         args.Add("-frames:v");
         args.Add(frameCount.ToString(CultureInfo.InvariantCulture));
-        args.AddRange(VideoEncoderArgs(render.Encoder, render.PreviewPreset, render.PreviewCrf));
+        args.AddRange(VideoEncoderArgs(render.Encoder, render.PreviewPreset,
+                                       render.PreviewCrf, render.PreviewBframes));
         args.Add("-an");
         args.Add(outputPath);
         return args;
@@ -343,9 +344,11 @@ public static class PreviewRenderPlanFactory
     }
 
     /// <summary>Pure mapping of encoder + libx264-style preset/CRF onto encoder arguments.</summary>
-    public static IReadOnlyList<string> VideoEncoderArgs(string encoder, string preset, int crf)
+    public static IReadOnlyList<string> VideoEncoderArgs(string encoder, string preset, int crf,
+                                                         int bframes = 3)
     {
         var crfText = crf.ToString(CultureInfo.InvariantCulture);
+        var bf = bframes.ToString(CultureInfo.InvariantCulture);
         return encoder switch
         {
             "h264_nvenc" =>
@@ -355,12 +358,14 @@ public static class PreviewRenderPlanFactory
                 "-rc", "vbr",
                 "-cq", crfText,
                 "-b:v", "0",
+                "-bf", bf,
             ],
             "h264_qsv" =>
             [
                 "-c:v", "h264_qsv",
                 "-preset", QsvPreset(preset),
                 "-global_quality", crfText,
+                "-bf", bf,
             ],
             "h264_amf" =>
             [
@@ -369,12 +374,14 @@ public static class PreviewRenderPlanFactory
                 "-rc", "cqp",
                 "-qp_i", crfText,
                 "-qp_p", crfText,
+                "-bf", bf,
             ],
             _ =>
             [
                 "-c:v", "libx264",
                 "-preset", preset,
                 "-crf", crfText,
+                "-bf", bf,
             ],
         };
     }

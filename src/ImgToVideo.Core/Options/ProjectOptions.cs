@@ -127,6 +127,16 @@ public sealed class ProjectOptions
             errors.Add("Final CRF must be between 0 and 51.");
         }
 
+        if (r.PreviewBframes < 0 || r.PreviewBframes > 16)
+        {
+            errors.Add("Preview B-frames must be between 0 and 16.");
+        }
+
+        if (r.FinalBframes < 0 || r.FinalBframes > 16)
+        {
+            errors.Add("Final B-frames must be between 0 and 16.");
+        }
+
         if (Planner is not ("v1" or "v2"))
         {
             errors.Add("Planner must be \"v1\" or \"v2\".");

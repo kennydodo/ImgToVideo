@@ -62,6 +62,33 @@ public class EncoderArgsTests
     }
 
     [Fact]
+    public void Preview_disables_b_frames_to_avoid_low_res_shimmer()
+    {
+        // B-frames at the preview's low resolution pump the quality every
+        // (bframes+1) frames, which reads as shaky motion. The preview default
+        // is 0.
+        var args = Args(new RenderOptions { Encoder = "libx264" });
+        Assert.Equal("0", args[args.ToList().IndexOf("-bf") + 1]);
+    }
+
+    [Fact]
+    public void Final_render_can_keep_b_frames()
+    {
+        var args = Args(new RenderOptions { Encoder = "libx264", PreviewBframes = 3 });
+        Assert.Equal("3", args[args.ToList().IndexOf("-bf") + 1]);
+    }
+
+    [Fact]
+    public void Hardware_encoders_emit_b_frames_too()
+    {
+        foreach (var encoder in new[] { "h264_nvenc", "h264_qsv", "h264_amf" })
+        {
+            var args = Args(new RenderOptions { Encoder = encoder, PreviewBframes = 0 });
+            Assert.Equal("0", args[args.ToList().IndexOf("-bf") + 1]);
+        }
+    }
+
+    [Fact]
     public void ResolveEncoder_falls_back_to_cpu_when_hardware_is_missing()
     {
         // No ffmpeg on the probe path (or no hw encoders) must resolve to libx264

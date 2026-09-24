@@ -36,6 +36,12 @@ See [docs/generation-spec.md](docs/generation-spec.md) for the image generation 
 - Final render: RENDER FINAL produces `out\final\final.mp4` at project resolution
   with Final preset/CRF, plus `captions.srt` — drop both into CapCut (CapCut tier 1).
   Encoder `auto` probes for NVENC/AMF/QSV and falls back to libx264
+- Preview render (`render-final <folder> --preview`): the fast draft to
+  `out\preview.mp4`. It encodes with **0 B-frames** (`preview_bframes`, default
+  0): at the preview's low resolution an encoder's B-frame quality pattern shows
+  up as a period-(bframes+1) sharpness shimmer that reads as shaky motion. The
+  final render keeps B-frames (`final_bframes`, default 3) — invisible at full
+  resolution and they shrink the file
 - Manual spikes pending: phase 0 (import exported XML into Premiere, verify keyframes — fallback
   is `IncludeMotionKeyframes = false`), phase 0b (CapCut draft study)
 - Next: CapCut tier 2 draft exporter (spike-gated), headless CLI batch builds, batch image runner
