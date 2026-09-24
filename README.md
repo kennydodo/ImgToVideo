@@ -42,6 +42,13 @@ See [docs/generation-spec.md](docs/generation-spec.md) for the image generation 
   up as a period-(bframes+1) sharpness shimmer that reads as shaky motion. The
   final render keeps B-frames (`final_bframes`, default 3) — invisible at full
   resolution and they shrink the file
+- Supersampling (`supersample_target_width`, default 4608): `zoompan` rounds the
+  crop to whole input pixels, so a slow pan/zoom moves in (output / grid) pixel
+  steps. The source is scaled up until the zoompan input grid reaches roughly
+  this width (capped at 4x; sources at/above 3840 are never supersampled), which
+  keeps those steps sub-pixel. Without it a 720p source sat on a 2752 grid and
+  visibly stair-stepped. 0 disables supersampling (fastest, jittery on
+  low-resolution sources)
 - Manual spikes pending: phase 0 (import exported XML into Premiere, verify keyframes — fallback
   is `IncludeMotionKeyframes = false`), phase 0b (CapCut draft study)
 - Next: CapCut tier 2 draft exporter (spike-gated), headless CLI batch builds, batch image runner

@@ -137,6 +137,11 @@ public sealed class ProjectOptions
             errors.Add("Final B-frames must be between 0 and 16.");
         }
 
+        if (r.SupersampleTargetWidth < 0 || r.SupersampleTargetWidth > 16384)
+        {
+            errors.Add("Supersample target width must be between 0 and 16384.");
+        }
+
         if (Planner is not ("v1" or "v2"))
         {
             errors.Add("Planner must be \"v1\" or \"v2\".");

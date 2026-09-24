@@ -290,6 +290,7 @@ public partial class SettingsWindow : Window
                 FinalPreset = TxtFinalPreset.Text.Length > 0 ? TxtFinalPreset.Text : Options.Render.FinalPreset,
                 FinalCrf = I(TxtFinalCrf.Text, Options.Render.FinalCrf),
                 FinalBframes = Options.Render.FinalBframes,
+                SupersampleTargetWidth = Options.Render.SupersampleTargetWidth,
                 Encoder = TxtEncoder.Text.Length > 0 ? TxtEncoder.Text : Options.Render.Encoder,
                 FfmpegPath = TxtFfmpegPath.Text.Length > 0 ? TxtFfmpegPath.Text : Options.Render.FfmpegPath,
                 FfprobePath = TxtFfprobePath.Text.Length > 0 ? TxtFfprobePath.Text : Options.Render.FfprobePath,

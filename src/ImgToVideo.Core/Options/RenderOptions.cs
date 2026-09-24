@@ -20,6 +20,16 @@ public sealed class RenderOptions
     public int FinalCrf { get; set; } = 18;
     public int FinalBframes { get; set; } = 3;
 
+    /// <summary>
+    /// Target width of the zoompan input grid. The source is supersampled up to
+    /// roughly this width so the crop lands on a fine grid: zoompan rounds the
+    /// crop to whole input pixels, so a small grid makes slow pans/zooms
+    /// stair-step (a 720p source with the old fixed 2x reached only 2752 and
+    /// visibly shook). Sources at or above 3840 are never supersampled. 0
+    /// disables supersampling: fastest, but jittery on low-resolution sources.
+    /// </summary>
+    public int SupersampleTargetWidth { get; set; } = 4608;
+
     /// <summary>"auto" probes for a hardware encoder (NVENC/AMF/QSV) and falls back to CPU libx264.</summary>
     public string Encoder { get; set; } = "auto";
     public string FfmpegPath { get; set; } = "ffmpeg";

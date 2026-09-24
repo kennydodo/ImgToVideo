@@ -7,8 +7,13 @@ namespace ImgToVideo.Ffmpeg;
 
 public static class PreviewRenderPlanFactory
 {
+    /// <summary>Sources at or above this width are not supersampled - they are
+    /// already fine-grained enough that the crop rounding is sub-pixel.</summary>
     private const long SupersampleThreshold = 3840;
-    private const long SupersampleFactor = 2;
+
+    /// <summary>Supersample factor cap: the zoompan input memory and CPU cost
+    /// scale with the square of the factor.</summary>
+    private const long SupersampleMaxFactor = 4;
 
     public static RenderPlan Build(
         Timeline timeline,
@@ -218,6 +223,27 @@ public static class PreviewRenderPlanFactory
             transitionFrames, options.Render, outputPath);
     }
 
+    /// <summary>
+    /// Supersample factor so the zoompan input grid reaches roughly
+    /// <paramref name="targetWidth"/>. zoompan rounds the crop to whole input
+    /// pixels, so a slow pan/zoom moves in (out_w / grid) pixel steps: the old
+    /// fixed 2x left a 720p source on a 2752 grid, and its ~0.5 px/frame step
+    /// rounded into a visible period-2 stair-step ("shaky"). Reaching ~4600
+    /// keeps those steps sub-pixel. 0 disables supersampling (fastest, but
+    /// jittery on low-resolution sources).
+    /// </summary>
+    public static int SupersampleFor(long sourceWidth, int targetWidth)
+    {
+        if (targetWidth <= 0 || sourceWidth >= SupersampleThreshold ||
+            sourceWidth >= targetWidth)
+        {
+            return 1;
+        }
+
+        var factor = (int)Math.Ceiling(targetWidth / (double)sourceWidth);
+        return Math.Clamp(factor, 2, (int)SupersampleMaxFactor);
+    }
+
     private static string BuildSideChain(
         VideoClip clip, int sourceWidth, int sourceHeight,
         long pieceStart, long pieceCount, ProjectOptions options)
@@ -242,7 +268,7 @@ public static class PreviewRenderPlanFactory
 
         if (viewportsInsideImage)
         {
-            var supersample = sourceWidth < SupersampleThreshold ? SupersampleFactor : 1;
+            var supersample = SupersampleFor(sourceWidth, options.Render.SupersampleTargetWidth);
             var scaledWidth = sourceWidth * supersample;
             var scaledHeight = sourceHeight * supersample;
             var chain = supersample > 1
@@ -257,7 +283,7 @@ public static class PreviewRenderPlanFactory
             Math.Max(clip.StartViewport.Right, clip.EndViewport.Right), sourceWidth));
         var canvasHeight = Even(Math.Max(
             Math.Max(clip.StartViewport.Bottom, clip.EndViewport.Bottom), sourceHeight));
-        var supersampleFactor = canvasWidth < SupersampleThreshold ? SupersampleFactor : 1;
+        var supersampleFactor = SupersampleFor(canvasWidth, options.Render.SupersampleTargetWidth);
         var scaledCanvasWidth = canvasWidth * supersampleFactor;
         var scaledCanvasHeight = canvasHeight * supersampleFactor;
         var scaledImageWidth = sourceWidth * supersampleFactor;

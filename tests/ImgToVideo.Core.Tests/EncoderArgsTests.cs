@@ -88,6 +88,61 @@ public class EncoderArgsTests
         }
     }
 
+    [Theory]
+    [InlineData(1376, 4)]   // 720p -> 5504 grid
+    [InlineData(1920, 3)]   // 1080p -> 5760 grid
+    [InlineData(2304, 2)]   // unchanged (4608 grid)
+    [InlineData(2880, 2)]   // unchanged (5760 grid)
+    [InlineData(3840, 1)]   // at the threshold -> never supersampled
+    [InlineData(5504, 1)]
+    public void Supersample_reaches_the_target_grid(long width, int expected)
+    {
+        Assert.Equal(expected, PreviewRenderPlanFactory.SupersampleFor(width, 4608));
+    }
+
+    [Fact]
+    public void Supersample_can_be_disabled()
+    {
+        Assert.Equal(1, PreviewRenderPlanFactory.SupersampleFor(1376, 0));
+    }
+
+    private static IReadOnlyList<string> ArgsFor(int srcWidth, int srcHeight, RenderOptions render)
+    {
+        var clip = new VideoClip
+        {
+            FilePath = "images/x.png",
+            SceneId = "S01",
+            DurationFrames = 60,
+            Motion = MotionType.ZoomIn,
+            StartViewport = new Rect(0, 0, srcWidth, srcHeight),
+            EndViewport = new Rect(srcWidth * 0.02, srcHeight * 0.02,
+                                   srcWidth * 0.96, srcHeight * 0.96),
+        };
+        var options = new ProjectOptions { Render = render };
+        return PreviewRenderPlanFactory.BuildClipPreviewArguments(
+            clip, srcWidth, srcHeight, options, "out.mp4");
+    }
+
+    [Theory]
+    [InlineData(1376, 768, "scale=5504:3072")]   // 720p -> x4
+    [InlineData(1920, 1080, "scale=5760:3240")]  // 1080p -> x3
+    [InlineData(2304, 1296, "scale=4608:2592")]  // unchanged -> x2
+    public void Low_resolution_sources_are_supersampled_to_the_grid(
+        int width, int height, string expected)
+    {
+        var args = ArgsFor(width, height, new RenderOptions());
+        var vf = args[args.ToList().IndexOf("-vf") + 1];
+        Assert.Contains(expected, vf);
+    }
+
+    [Fact]
+    public void Large_sources_are_not_supersampled()
+    {
+        var args = ArgsFor(5504, 3072, new RenderOptions());
+        var vf = args[args.ToList().IndexOf("-vf") + 1];
+        Assert.DoesNotContain("scale=", vf);
+    }
+
     [Fact]
     public void ResolveEncoder_falls_back_to_cpu_when_hardware_is_missing()
     {
