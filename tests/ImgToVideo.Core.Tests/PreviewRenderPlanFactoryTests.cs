@@ -52,10 +52,10 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         var vf = ArgumentAfter(plan.Segments[0].Arguments, "-vf");
 
         Assert.Equal(
-            "scale=4608:2592:flags=lanczos," +
-            "zoompan=z='min(1.28,max(1.2,4608/(3840+(-240)*((on+0)/89))))'" +
-            ":x='min(max(0,(2304+(0)*((on+0)/89))-iw/zoom/2),iw-iw/zoom)'" +
-            ":y='min(max(0,(1296+(0)*((on+0)/89))-ih/zoom/2),ih-ih/zoom)'" +
+            "scale=13824:7776:flags=lanczos," +
+            "zoompan=z='min(1.28,max(1.2,13824/(11520+(-720)*((on+0)/89))))'" +
+            ":x='min(max(0,(6912+(0)*((on+0)/89))-iw/zoom/2),iw-iw/zoom)'" +
+            ":y='min(max(0,(3888+(0)*((on+0)/89))-ih/zoom/2),ih-ih/zoom)'" +
             ":d=90:s=960x540:fps=30,format=yuv420p",
             vf);
     }
@@ -71,10 +71,10 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         var vf = ArgumentAfter(plan.Segments[1].Arguments, "-vf");
 
         Assert.Equal(
-            "scale=5760:2592:flags=lanczos," +
-            "zoompan=z='min(1.5,max(1.5,5760/(3840+(0)*((on+0)/89))))'" +
-            ":x='min(max(0,(1920+(1920)*((on+0)/89))-iw/zoom/2),iw-iw/zoom)'" +
-            ":y='min(max(0,(1296+(0)*((on+0)/89))-ih/zoom/2),ih-ih/zoom)'" +
+            "scale=14400:6480:flags=lanczos," +
+            "zoompan=z='min(1.5,max(1.5,14400/(9600+(0)*((on+0)/89))))'" +
+            ":x='min(max(0,(4800+(4800)*((on+0)/89))-iw/zoom/2),iw-iw/zoom)'" +
+            ":y='min(max(0,(3240+(0)*((on+0)/89))-ih/zoom/2),ih-ih/zoom)'" +
             ":d=90:s=960x540:fps=30,format=yuv420p",
             vf);
     }
@@ -91,7 +91,7 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         var vf = ArgumentAfter(plan.Segments[0].Arguments, "-vf");
 
         Assert.Contains("pow(min(1,max(0,((on+0)/89))),2)", vf);
-        Assert.Contains("4608/(3840+(-240)*pow(min(1,max(0,((on+0)/89))),2))", vf);
+        Assert.Contains("13824/(11520+(-720)*pow(min(1,max(0,((on+0)/89))),2))", vf);
     }
 
     [Fact]
@@ -151,8 +151,10 @@ public class PreviewRenderPlanFactoryTests : IDisposable
     }
 
     [Fact]
-    public void Images_at_threshold_are_not_supersampled()
+    public void Images_at_the_old_preview_threshold_are_still_supersampled()
     {
+        // 4K sources used to skip supersampling entirely (0.67 px wobble on a
+        // 2K screen); they now ride the same grid target as everything else.
         var imagePath = _project.WriteImage("S01_01.png", 3840, 1296);
         var timeline = SingleClipTimeline(imagePath, 60);
         var images = new List<ImageInfo>
@@ -165,8 +167,8 @@ public class PreviewRenderPlanFactoryTests : IDisposable
             System.IO.Path.Combine(_project.Path, "out", "preview.mp4"));
 
         var vf = ArgumentAfter(plan.Segments[0].Arguments, "-vf");
-        Assert.DoesNotContain("scale=", vf);
-        Assert.StartsWith("zoompan=", vf);
+        Assert.Contains("scale=15360:5184:flags=lanczos", vf);
+        Assert.StartsWith("scale=", vf);
     }
 
     [Fact]
@@ -185,8 +187,8 @@ public class PreviewRenderPlanFactoryTests : IDisposable
 
         var vf = ArgumentAfter(plan.Segments[0].Arguments, "-vf");
         Assert.Contains("z='1.2'", vf);
-        Assert.Contains("x='384'", vf);
-        Assert.Contains("y='216'", vf);
+        Assert.Contains("x='1152'", vf);
+        Assert.Contains("y='648'", vf);
     }
 
     [Fact]

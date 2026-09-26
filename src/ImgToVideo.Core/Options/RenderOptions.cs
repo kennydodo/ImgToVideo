@@ -23,12 +23,15 @@ public sealed class RenderOptions
     /// <summary>
     /// Target width of the zoompan input grid. The source is supersampled up to
     /// roughly this width so the crop lands on a fine grid: zoompan rounds the
-    /// crop to whole input pixels, so a small grid makes slow pans/zooms
-    /// stair-step (a 720p source with the old fixed 2x reached only 2752 and
-    /// visibly shook). Sources at or above 3840 are never supersampled. 0
-    /// disables supersampling: fastest, but jittery on low-resolution sources.
+    /// crop to whole input pixels, so a coarse grid makes slow pans/zooms
+    /// stair-step — and the player stretches the rendered file to the screen,
+    /// so what matters is the grid vs the DISPLAYED width, not the file width.
+    /// The effective target is never below ~4.8x the render width (see
+    /// PreviewRenderPlanFactory.SupersampleTargetFor), so raising the render
+    /// size raises the grid with it. 0 disables supersampling: fastest, but
+    /// jittery on slow motions.
     /// </summary>
-    public int SupersampleTargetWidth { get; set; } = 4608;
+    public int SupersampleTargetWidth { get; set; } = 12288;
 
     /// <summary>"auto" probes for a hardware encoder (NVENC/AMF/QSV) and falls back to CPU libx264.</summary>
     public string Encoder { get; set; } = "auto";

@@ -7,13 +7,18 @@ namespace ImgToVideo.Ffmpeg;
 
 public static class PreviewRenderPlanFactory
 {
-    /// <summary>Sources at or above this width are not supersampled - they are
-    /// already fine-grained enough that the crop rounding is sub-pixel.</summary>
-    private const long SupersampleThreshold = 3840;
-
     /// <summary>Supersample factor cap: the zoompan input memory and CPU cost
     /// scale with the square of the factor.</summary>
-    private const long SupersampleMaxFactor = 4;
+    private const long SupersampleMaxFactor = 8;
+
+    /// <summary>The zoompan input grid is never stretched beyond this width,
+    /// so memory and CPU stay bounded for huge sources.</summary>
+    private const long SupersampleMaxGridWidth = 16384;
+
+    /// <summary>The zoompan grid is kept at least this multiple of the render
+    /// width: the crop rounding is only invisible when the grid is a large
+    /// multiple of the size the viewer actually sees.</summary>
+    private const double PreviewToGridRatio = 4.8;
 
     public static RenderPlan Build(
         Timeline timeline,
@@ -226,23 +231,45 @@ public static class PreviewRenderPlanFactory
     /// <summary>
     /// Supersample factor so the zoompan input grid reaches roughly
     /// <paramref name="targetWidth"/>. zoompan rounds the crop to whole input
-    /// pixels, so a slow pan/zoom moves in (out_w / grid) pixel steps: the old
-    /// fixed 2x left a 720p source on a 2752 grid, and its ~0.5 px/frame step
-    /// rounded into a visible period-2 stair-step ("shaky"). Reaching ~4600
-    /// keeps those steps sub-pixel. 0 disables supersampling (fastest, but
-    /// jittery on low-resolution sources).
+    /// pixels, so a slow pan/zoom moves in (out_w / grid) pixel steps - and the
+    /// player stretches the file to the screen, so the on-screen wobble is
+    /// screenWidth / grid regardless of the file resolution. The old fixed 2x
+    /// left a 720p source on a 2752 grid (a visible period-2 stair-step) and
+    /// today leaves a 2K source on a 5120 grid: still a visible half-pixel
+    /// wobble fullscreen. The factor is capped both by
+    /// <see cref="SupersampleMaxFactor"/> and by the grid-width guard so
+    /// memory stays sane. 0 targetWidth disables supersampling (fastest, but
+    /// jittery on slow motions).
     /// </summary>
     public static int SupersampleFor(long sourceWidth, int targetWidth)
     {
-        if (targetWidth <= 0 || sourceWidth >= SupersampleThreshold ||
-            sourceWidth >= targetWidth)
+        if (targetWidth <= 0 || sourceWidth >= targetWidth)
+        {
+            return 1;
+        }
+
+        var gridCap = (int)Math.Min(SupersampleMaxFactor, SupersampleMaxGridWidth / sourceWidth);
+        if (gridCap < 2)
         {
             return 1;
         }
 
         var factor = (int)Math.Ceiling(targetWidth / (double)sourceWidth);
-        return Math.Clamp(factor, 2, (int)SupersampleMaxFactor);
+        return Math.Clamp(factor, 2, gridCap);
     }
+
+    /// <summary>
+    /// Effective zoompan grid target for the current render: the configured
+    /// absolute width, but never below ~4.8x the render width. A target tuned
+    /// at one render size (4608 for the 960 preview) leaves larger renders -
+    /// e.g. the 2560-wide final - on a grid too coarse for smooth motion.
+    /// 0 keeps supersampling disabled.
+    /// </summary>
+    public static long SupersampleTargetFor(ProjectOptions options) =>
+        options.Render.SupersampleTargetWidth <= 0
+            ? 0
+            : Math.Max(options.Render.SupersampleTargetWidth,
+                       (long)Math.Round(options.Render.PreviewWidth * PreviewToGridRatio));
 
     private static string BuildSideChain(
         VideoClip clip, int sourceWidth, int sourceHeight,
@@ -268,7 +295,7 @@ public static class PreviewRenderPlanFactory
 
         if (viewportsInsideImage)
         {
-            var supersample = SupersampleFor(sourceWidth, options.Render.SupersampleTargetWidth);
+            var supersample = SupersampleFor(sourceWidth, (int)SupersampleTargetFor(options));
             var scaledWidth = sourceWidth * supersample;
             var scaledHeight = sourceHeight * supersample;
             var chain = supersample > 1
@@ -283,7 +310,7 @@ public static class PreviewRenderPlanFactory
             Math.Max(clip.StartViewport.Right, clip.EndViewport.Right), sourceWidth));
         var canvasHeight = Even(Math.Max(
             Math.Max(clip.StartViewport.Bottom, clip.EndViewport.Bottom), sourceHeight));
-        var supersampleFactor = SupersampleFor(canvasWidth, options.Render.SupersampleTargetWidth);
+        var supersampleFactor = SupersampleFor(canvasWidth, (int)SupersampleTargetFor(options));
         var scaledCanvasWidth = canvasWidth * supersampleFactor;
         var scaledCanvasHeight = canvasHeight * supersampleFactor;
         var scaledImageWidth = sourceWidth * supersampleFactor;
