@@ -6,18 +6,24 @@
 //   ImgToVideo.Cli export-premiere <projectFolder>
 //   ImgToVideo.Cli export-capcut <projectFolder>
 //   ImgToVideo.Cli export-batch <projectFolder>
+//   ImgToVideo.Cli strip-srt <projectFolder>
 //
 // render-final produces out\final\final.mp4 (+ captions.srt); --preview
 // renders the fast draft to out\preview.mp4 instead. export-premiere writes
 // out\premiere.xml (FCP7 XML with motion keyframes); export-capcut writes
 // out\capcut\<name>\ (CapCut draft folder — copy into CapCut's draft root).
+// strip-srt writes out\narration.llm.txt — the SRT with timestamps removed
+// ([cue] text only) for pasting into the LLM planner; cue numbers are unchanged
+// so the resulting shotlist still resolves against narration.srt.
 
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ImgToVideo.CapCut;
 using ImgToVideo.Core.Analysis;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
+using ImgToVideo.Core.Parsing;
 using ImgToVideo.Core.Planning;
 using ImgToVideo.Core.Reporting;
 using ImgToVideo.Core.Serialization;
@@ -32,6 +38,7 @@ if (args.Length < 2)
           ImgToVideo.Cli plan <projectFolder>
           ImgToVideo.Cli export-premiere <projectFolder>
           ImgToVideo.Cli export-capcut <projectFolder>
+          ImgToVideo.Cli strip-srt <projectFolder>
         """);
     return 2;
 }
@@ -40,7 +47,7 @@ var command = args[0].ToLowerInvariant();
 var folder = Path.GetFullPath(args[1]);
 var preview = args.Contains("--preview", StringComparer.OrdinalIgnoreCase);
 
-if (command is not ("render-final" or "plan" or "export-premiere" or "export-capcut" or "export-batch"))
+if (command is not ("render-final" or "plan" or "export-premiere" or "export-capcut" or "export-batch" or "strip-srt"))
 {
     Console.Error.WriteLine($"unknown command: {command}");
     return 2;
@@ -67,6 +74,49 @@ if (configErrors.Count > 0)
 
 var inventory = ProjectLoader.Load(folder, options);
 ReportIssues(inventory.Issues);
+
+if (command == "strip-srt")
+{
+    // The SRT with timestamps removed for the LLM planner: [cue] text lines,
+    // cue numbers unchanged. The assembler still parses narration.srt itself.
+    if (inventory.SrtFilePath is null)
+    {
+        Console.Error.WriteLine("no .srt found in the project folder");
+        return 1;
+    }
+
+    string original;
+    string compact;
+    try
+    {
+        original = File.ReadAllText(inventory.SrtFilePath);
+        compact = SrtParser.ToCompactNarration(original);
+    }
+    catch (Exception ex) when (ex is FormatException or IOException)
+    {
+        Console.Error.WriteLine(
+            $"could not read {Path.GetFileName(inventory.SrtFilePath)}: {ex.Message}");
+        return 1;
+    }
+
+    if (compact.Length == 0)
+    {
+        Console.Error.WriteLine(
+            $"{Path.GetFileName(inventory.SrtFilePath)} contains no subtitle blocks");
+        return 1;
+    }
+
+    var stripOutDir = Path.Combine(folder, "out");
+    Directory.CreateDirectory(stripOutDir);
+    var compactPath = Path.Combine(stripOutDir, "narration.llm.txt");
+    File.WriteAllText(compactPath, compact, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    Console.WriteLine($"llm narration: {compactPath}");
+    Console.WriteLine(
+        $"timestamps removed: {original.Length:N0} → {compact.Length:N0} chars; " +
+        "cue numbers unchanged — paste it with the authoring brief.");
+    return 0;
+}
+
 if (inventory.AudioFilePath is null)
 {
     Console.Error.WriteLine("no audio found in project folder");

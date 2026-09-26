@@ -141,11 +141,17 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <Button Grid.Row="0" x:Name="BtnCopyDiagnostics" Content="COPY"
-                        Style="{StaticResource SecondaryButton}"
-                        HorizontalAlignment="Right" Margin="0,0,0,4"
-                        ToolTip="Copy all diagnostics to the clipboard (paste into the LLM chat to fix the shot list)."
-                        Click="BtnCopyDiagnostics_Click"/>
+                <StackPanel Grid.Row="0" Orientation="Horizontal"
+                            HorizontalAlignment="Right" Margin="0,0,0,4">
+                    <Button x:Name="BtnCopySrtForLlm" Content="COPY SRT FOR LLM"
+                            Style="{StaticResource SecondaryButton}" Margin="0,0,8,0"
+                            ToolTip="Copy the narration SRT without timestamps ([cue] text only) to paste into the LLM planner. Cue numbers stay the same, so the shotlist still matches narration.srt."
+                            Click="BtnCopySrtForLlm_Click"/>
+                    <Button x:Name="BtnCopyDiagnostics" Content="COPY"
+                            Style="{StaticResource SecondaryButton}"
+                            ToolTip="Copy all diagnostics to the clipboard (paste into the LLM chat to fix the shot list)."
+                            Click="BtnCopyDiagnostics_Click"/>
+                </StackPanel>
                 <ListBox Grid.Row="1" x:Name="LstIssues"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          ScrollViewer.HorizontalScrollBarVisibility="Auto">

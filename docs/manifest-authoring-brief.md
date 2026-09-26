@@ -1,6 +1,8 @@
 # Master planning prompt — two documents in one shot
 
-**How to use:** paste everything below the line into the LLM (DeepSeek/GPT/Claude), followed by: (1) the full SRT, (2) the channel visual style instructions, (3) a character/reference bible if one exists. The LLM returns **two documents**: the IMAGE BATCH SHEET (master prompt + per-scene batch prompts — give this to the batch image app) and **shotlist.json** (drop it in the project folder, run ANALYZE). Then iterate with the diagnostics COPY button if needed.
+**How to use:** paste everything below the line into the LLM (DeepSeek/GPT/Claude), followed by: (1) the narration SRT, (2) the channel visual style instructions, (3) a character/reference bible if one exists. The LLM returns **two documents**: the IMAGE BATCH SHEET (master prompt + per-scene batch prompts — give this to the batch image app) and **shotlist.json** (drop it in the project folder, run ANALYZE). Then iterate with the diagnostics COPY button if needed.
+
+**Slimming the SRT (optional):** the planner never reads the timestamps — it works from cue numbers — so you can paste a timestamp-free copy to save input characters. Run `ImgToVideo.Cli strip-srt <projectFolder>` (writes `out\narration.llm.txt`) or hit the app's **COPY SRT FOR LLM** button; both emit one line per cue as `[cue] text` with the **same cue numbers** as `narration.srt`, so the shotlist still resolves against the real SRT on disk. When the SRT arrives in that form, the bracketed number is the cue index to reference in `cues`.
 
 ---
 

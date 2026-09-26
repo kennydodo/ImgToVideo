@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using ImgToVideo.Core.Models;
 
@@ -8,6 +9,9 @@ public static partial class SrtParser
 {
     [GeneratedRegex(@"^(\d+):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$")]
     private static partial Regex TimestampRegex();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
 
     public static List<SubtitleBlock> Parse(string content)
     {
@@ -60,6 +64,37 @@ public static partial class SrtParser
         }
 
         return blocks;
+    }
+
+    /// <summary>The cue key used wherever cues are referenced: the SRT index
+    /// when present, else the block's 1-based position. Shared by the shotlist
+    /// expander and the compact-narration export so the two cannot drift.</summary>
+    public static int CueIndex(SubtitleBlock block, int position) =>
+        block.Index > 0 ? block.Index : position + 1;
+
+    /// <summary>Renders an SRT as cue-index + text only — timestamp lines and
+    /// blank separators removed — for pasting into the LLM planner. Cue numbers
+    /// match the ones a shotlist must reference (the SRT index, or the position
+    /// for unnumbered blocks), so a plan authored from this text still resolves
+    /// against the original SRT on disk. The assembler keeps using the real
+    /// timestamps; the LLM never needs them.</summary>
+    public static string ToCompactNarration(string content)
+    {
+        var blocks = Parse(content);
+        if (blocks.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            var block = blocks[i];
+            var text = WhitespaceRegex().Replace(block.Text, " ").Trim();
+            builder.Append('[').Append(CueIndex(block, i)).Append("] ").Append(text).Append('\n');
+        }
+
+        return builder.ToString();
     }
 
     private static (double Start, double End) ParseTimeLine(string line, int blockIndex)
