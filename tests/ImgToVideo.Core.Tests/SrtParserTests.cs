@@ -93,4 +93,41 @@ public class SrtParserTests
     {
         Assert.Empty(SrtParser.Parse("   \n\n  \n"));
     }
+
+    [Fact]
+    public void Compact_narration_drops_timestamps_but_keeps_cue_numbers_and_text()
+    {
+        var compact = SrtParser.ToCompactNarration(
+            "1\n00:00:00,000 --> 00:00:02,000\nFirst.\n\n" +
+            "2\n00:00:02,500 --> 00:00:05,000\nSecond line\ncontinues here.\n");
+
+        Assert.Equal("[1] First.\n[2] Second line continues here.\n", compact);
+    }
+
+    [Fact]
+    public void Compact_narration_uses_position_for_unnumbered_blocks()
+    {
+        // An unnumbered SRT still yields the same effective cue keys the
+        // shotlist expander uses (Index > 0 ? Index : position + 1).
+        var compact = SrtParser.ToCompactNarration(
+            "00:00:00,000 --> 00:00:02,000\nFirst.\n\n00:00:02,500 --> 00:00:05,000\nSecond.\n");
+
+        Assert.Equal("[1] First.\n[2] Second.\n", compact);
+    }
+
+    [Fact]
+    public void Compact_narration_preserves_non_sequential_cue_numbers()
+    {
+        // Cue references resolve by the SRT's own numbers, so they must survive.
+        var compact = SrtParser.ToCompactNarration(
+            "7\n00:00:00,000 --> 00:00:02,000\nSeven.\n\n12\n00:00:02,500 --> 00:00:05,000\nTwelve.\n");
+
+        Assert.Equal("[7] Seven.\n[12] Twelve.\n", compact);
+    }
+
+    [Fact]
+    public void Compact_narration_is_empty_for_blank_input()
+    {
+        Assert.Equal(string.Empty, SrtParser.ToCompactNarration("   \n\n  \n"));
+    }
 }

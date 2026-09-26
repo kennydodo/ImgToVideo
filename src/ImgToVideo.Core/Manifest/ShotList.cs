@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
+using ImgToVideo.Core.Parsing;
 
 namespace ImgToVideo.Core.Manifest;
 
@@ -328,7 +329,7 @@ public static class ShotListExpander
         var byIndex = new Dictionary<int, SubtitleBlock>();
         for (var i = 0; i < subtitles.Count; i++)
         {
-            var key = subtitles[i].Index > 0 ? subtitles[i].Index : i + 1;
+            var key = SrtParser.CueIndex(subtitles[i], i);
             byIndex.TryAdd(key, subtitles[i]);
         }
 

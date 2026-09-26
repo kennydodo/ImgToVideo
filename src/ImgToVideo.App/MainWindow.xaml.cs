@@ -5,6 +5,7 @@ using ImgToVideo.Core.Analysis;
 using ImgToVideo.Core.Manifest;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
+using ImgToVideo.Core.Parsing;
 using ImgToVideo.Core.Planning;
 using ImgToVideo.Core.Reporting;
 using ImgToVideo.Core.Serialization;
@@ -515,6 +516,39 @@ public partial class MainWindow : Window
         catch (Exception)
         {
             TxtStatus.Text = "Could not access the clipboard; select and copy the text manually.";
+        }
+    }
+
+    private void BtnCopySrtForLlm_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inventory?.SrtFilePath is not { } srtPath)
+        {
+            ShowStatus("Analyze a project with a narration .srt first.", StatusKind.Error);
+            return;
+        }
+
+        string text;
+        try
+        {
+            text = SrtParser.ToCompactNarration(File.ReadAllText(srtPath));
+        }
+        catch (Exception ex) when (ex is FormatException or IOException)
+        {
+            ShowStatus($"Could not read {Path.GetFileName(srtPath)}: {ex.Message}", StatusKind.Error);
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+            ShowStatus(
+                $"Copied {Path.GetFileName(srtPath)} without timestamps ({text.Length:N0} chars) — " +
+                "paste it into the LLM with the authoring brief.",
+                StatusKind.Success);
+        }
+        catch (Exception)
+        {
+            ShowStatus("Could not access the clipboard; select and copy the text manually.", StatusKind.Error);
         }
     }
 
