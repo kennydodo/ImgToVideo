@@ -176,6 +176,10 @@ All timing derives from the SRT. A shot begins when its visual idea begins and e
 
 If you approach your output limit: stop after the last COMPLETE entry, close all brackets cleanly, end the message, then continue in the next message with only the missing content. Never end mid-token — a file ending like `"asset": "S03_15_CU_ST` is a hard failure. When you resume, pick up the cue ranges exactly where you stopped and continue through the final cue of the SRT — a message that stops early must always be followed by continuation messages until every cue is covered.
 
+## SECTION 11B — SHOWING WHAT IS SAID, NOT JUST WHO IS THERE
+
+When the narration describes a communicative or expressive act — signing, speaking, naming, pointing, gesturing — directed at a specific subject, the prompt must state the concrete VISIBLE gesture or action toward THAT subject. Placing the subjects near each other is not enough: "a researcher holds a cat while Coco watches" does not show Coco naming or signing to the cat; "Coco's hands form a sign directed at the cat" does. If a sub-beat says the same action applies to several parallel subjects in one image (e.g. one PROC/sequence shot covering several cats she named over the years), describe or repeat that action for EACH subject shown, not only the last or most prominent one — a sequence where only one of several parallel figures carries the described action is incomplete.
+
 ## SECTION 12 — FINAL VALIDATION CHECKLIST
 
 Before output, verify:
