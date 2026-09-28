@@ -1,0 +1,9 @@
+# Normalize line endings for this repo. Every file committed to this repo so
+# far is stored with LF endings (confirmed against HEAD blobs), even the
+# Windows-only .ps1/.iss/.slnx files, so keep that convention: text files are
+# always checked in as LF, regardless of what line ending a given working
+# tree (e.g. a Windows checkout with no core.autocrlf set) happens to have.
+* text=auto eol=lf
+
+# Known binary asset - never touch, never diff as text.
+*.ico binary
