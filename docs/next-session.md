@@ -2,6 +2,31 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-09-28 — REQUEST: default output resolution = Google Flow's native 1376×768
+
+Requested by Kehinde. Google Flow returns image masters at **1376×768** — that is
+the real native size of a generated still, and anything larger is an upscale.
+ImgToVideo should default to that rather than 2560×1440, so a project renders at
+the resolution the images actually are.
+
+- Today's defaults: `OutputOptions.Width/Height = 2560/1440`
+  (`src/ImgToVideo.Core/Options/OutputOptions.cs:5-6`); the Settings preset list
+  is HD 1920×1080 / 2K 2560×1440 / 4K 3840×2160
+  (`src/ImgToVideo.App/SettingsWindow.xaml.cs:192`); `Timeline.Resolution` falls
+  back to 1920×1080 (`src/ImgToVideo.Core/Models/Timeline.cs:9`).
+- Wanted: **1376×768 becomes the default** for new projects, and the preset list
+  gains it (e.g. `1376 × 768 (Flow native)`). The existing HD/2K/4K presets stay
+  selectable for projects that do upscale.
+- Ratio caveat: 1376×768 is 1.7917, not exactly 16:9, and Flow's other ratios are
+  the same (its "9:16" master is 768×1376). Decide whether "Flow native" keeps
+  the exact master size or snaps to the nominal ratio — FlowBatch's upscaler
+  already models both as `fit: exact` vs `fit: aspect` (see its README,
+  "Upscaling").
+- Scope: this is the render/canvas size only. Masters on disk are already
+  1376×768 when FlowBatch's upscale tier is off; when the tier is on, the
+  upscaled files sit next to them (`<name>_2k.png` etc.), so the default should
+  probably key off the master, not the largest file present.
+
 ## 2026-09-19 (morning) — DONE: image-batch delta closed, full pipeline rendered
 
 The "fix the delta (22 → 8)" plan below is COMPLETE — with one twist: the 22-card
