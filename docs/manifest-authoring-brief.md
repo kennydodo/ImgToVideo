@@ -180,6 +180,12 @@ If you approach your output limit: stop after the last COMPLETE entry, close all
 
 When the narration describes a communicative or expressive act — signing, speaking, naming, pointing, gesturing — directed at a specific subject, the prompt must state the concrete VISIBLE gesture or action toward THAT subject. Placing the subjects near each other is not enough: "a researcher holds a cat while Coco watches" does not show Coco naming or signing to the cat; "Coco's hands form a sign directed at the cat" does. If a sub-beat says the same action applies to several parallel subjects in one image (e.g. one PROC/sequence shot covering several cats she named over the years), describe or repeat that action for EACH subject shown, not only the last or most prominent one — a sequence where only one of several parallel figures carries the described action is incomplete.
 
+## SECTION 11C — SHOWING THE EMOTIONAL REACTION, NOT JUST THE MOMENT
+
+When the narration states that a subject felt or showed a specific emotional reaction at a beat — grief, joy, fear, surprise, anger, relief, devastation, affection, and the like — the prompt must specify the visible facial expression and/or body-language cue that conveys it: eyes, mouth, brow, posture, gesture. A prop, a symbol, or an infographic icon standing next to an otherwise neutral subject does not show the reaction; "mourned it when it was gone" needs the subject's face and posture to carry grief, not just an empty blanket or a faded outline beside an unreadable expression. This applies across every genre and subject, human or animal.
+
+This does not extend to narration that only discusses an emotion as a concept, process or general claim rather than a subject's reaction at that moment ("bonding releases oxytocin", "pet owners report better mental health") — that stays narration's job like any other internal or statistical claim (SECTION 11's judge exclusions), and INF/CMP explainer diagrams illustrating such claims with icons are unaffected. The line is whether a specific subject is shown having the reaction: if so, show it on them; if the beat is describing the idea rather than a moment, an icon or prop remains fine.
+
 ## SECTION 12 — FINAL VALIDATION CHECKLIST
 
 Before output, verify:
