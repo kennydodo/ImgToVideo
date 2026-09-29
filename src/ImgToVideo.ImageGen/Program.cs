@@ -193,11 +193,34 @@ internal static class Program
         var failed = 0;
         var start = DateTime.Now;
 
+        // Renderly only: a quota/billing wall means every remaining call will
+        // fail the same way, so stop calling the API the moment one is seen
+        // instead of burning the rest of the batch on retries that cannot
+        // succeed. Exit code 3 tells the caller (WhisperRadar) this is that
+        // specific case, distinct from ordinary per-image failures (exit 1),
+        // so it can fall back to a free generator (the Flow Driver) for
+        // whatever is still missing instead of just giving up.
+        var quotaExhausted = false;
+        var quotaSkipped = 0;
+
         await Parallel.ForEachAsync(
             toGenerate,
             new ParallelOptions { MaxDegreeOfParallelism = options.Parallel },
             async (item, ct) =>
             {
+                if (renderly is not null && quotaExhausted)
+                {
+                    lock (reviewGate)
+                    {
+                        Interlocked.Increment(ref quotaSkipped);
+                        review[review.FindIndex(r => r.FileName == item.File)] = new ReviewItem(
+                            item.File, item.Prompt, ReviewStatus.Failed,
+                            "skipped — Renderly quota/billing limit reached earlier in this batch");
+                    }
+
+                    return;
+                }
+
                 try
                 {
                     var fullPrompt = document.Style is null
@@ -238,18 +261,39 @@ internal static class Program
                             item.File, item.Prompt, ReviewStatus.Failed, ex.Message);
                     }
 
+                    if (renderly is not null && IsQuotaOrBillingError(ex.Message))
+                    {
+                        quotaExhausted = true;
+                    }
+
                     Console.WriteLine($"[fail] {item.File} — {ex.Message}");
                 }
             });
 
         var elapsed = DateTime.Now - start;
         Console.WriteLine(
-            $"done in {elapsed.TotalMinutes:0.#} min: {generated} generated, {skipped} skipped, {failed} failed.");
+            $"done in {elapsed.TotalMinutes:0.#} min: {generated} generated, {skipped} skipped, {failed} failed" +
+            (quotaSkipped > 0 ? $", {quotaSkipped} skipped (quota/billing)." : "."));
 
         WriteContactSheet(projectFolder, review);
         Console.WriteLine($"review sheet: {Path.Combine(projectFolder, "out", "image-review.html")}");
+        if (quotaExhausted)
+        {
+            Console.WriteLine(
+                "quota/billing limit reached — stopped early so the caller can fall back to a free generator.");
+            return 3;
+        }
+
         return failed > 0 ? 1 : 0;
     }
+
+    /// <summary>True for the wording Renderly's backend uses when Gemini's quota or
+    /// billing is exhausted (services/gemini_client.py's QuotaExceededError, surfaced
+    /// through generation.error) as well as GeminiImageClient's own direct-mode
+    /// equivalent - both are permanent for the rest of this run, not worth retrying.</summary>
+    private static bool IsQuotaOrBillingError(string message) =>
+        message.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("billing", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<byte[]> GenerateViaRenderlyAsync(
         RenderlyClient renderly, Options options,
@@ -506,6 +550,11 @@ internal static class Program
             Without --renderly the tool calls the Gemini API directly. With --renderly,
             generation runs inside Renderly (history, spend tracking, channel references,
             optional GPU upscale) and the finished image is downloaded into images\.
+
+            Exit codes: 0 all requested images generated (or already existed); 1 some
+            images failed for ordinary reasons; 3 (--renderly only) stopped early because
+            Renderly reported a quota/billing limit - a caller can fall back to a free
+            generator for whatever is still missing from images\.
 
             The shotlist "style" field is prepended to every prompt. Existing files are
             skipped, so re-running the tool only fills the gaps. A review sheet is written
