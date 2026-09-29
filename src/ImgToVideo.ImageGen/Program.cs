@@ -19,7 +19,8 @@ internal static class Program
         int? ChannelId,
         string ImageSize,
         int? UpscaleScale,
-        IReadOnlyList<int> RefAssetIds);
+        IReadOnlyList<int> RefAssetIds,
+        IReadOnlySet<string>? MotionFilter);
 
     private static int Main(string[] args)
     {
@@ -118,13 +119,29 @@ internal static class Program
         Console.WriteLine(
             $"shotlist: {document.Shots.Count} shots, {planned.Count} planned images" +
             (document.Style is null ? "" : " + master style prompt"));
+        if (options.MotionFilter is { } motionFilter)
+        {
+            Console.WriteLine(
+                $"motion filter: only [{string.Join(", ", motionFilter)}] this run");
+        }
 
         var review = new List<ReviewItem>();
         var reviewGate = new object();
         var toGenerate = new List<(string File, string Prompt)>();
         var skipped = 0;
+        var filteredOut = 0;
         foreach (var (file, prompt) in planned)
         {
+            // --motion-filter scopes this run to a subset of motion codes (e.g. only
+            // PL/PR go through the paid API; the rest are left for a free generator
+            // to pick up separately) - filtered-out files are neither generated,
+            // existing, nor failed this run, so they get no review entry at all.
+            if (options.MotionFilter is { } filter && !filter.Contains(MotionSuffixOf(file)))
+            {
+                filteredOut++;
+                continue;
+            }
+
             if (file != Path.GetFileName(file) || file.Contains(':'))
             {
                 review.Add(new ReviewItem(file, prompt, ReviewStatus.Failed,
@@ -155,7 +172,8 @@ internal static class Program
 
         if (options.DryRun)
         {
-            Console.WriteLine($"dry run: {toGenerate.Count} would be generated, {skipped} already exist.");
+            Console.WriteLine($"dry run: {toGenerate.Count} would be generated, {skipped} already exist" +
+                (filteredOut > 0 ? $", {filteredOut} filtered out by --motion-filter." : "."));
             foreach (var (file, prompt) in toGenerate)
             {
                 Console.WriteLine($"[gen ] {file} ({prompt.Length} chars)");
@@ -166,7 +184,9 @@ internal static class Program
 
         if (toGenerate.Count == 0)
         {
-            Console.WriteLine("nothing to generate — every planned image is already on disk.");
+            Console.WriteLine(filteredOut > 0
+                ? "nothing to generate — every image matching --motion-filter is already on disk."
+                : "nothing to generate — every planned image is already on disk.");
             WriteContactSheet(projectFolder, review);
             return 0;
         }
@@ -273,7 +293,8 @@ internal static class Program
         var elapsed = DateTime.Now - start;
         Console.WriteLine(
             $"done in {elapsed.TotalMinutes:0.#} min: {generated} generated, {skipped} skipped, {failed} failed" +
-            (quotaSkipped > 0 ? $", {quotaSkipped} skipped (quota/billing)." : "."));
+            (quotaSkipped > 0 ? $", {quotaSkipped} skipped (quota/billing)" : "") +
+            (filteredOut > 0 ? $", {filteredOut} filtered out by --motion-filter." : "."));
 
         WriteContactSheet(projectFolder, review);
         Console.WriteLine($"review sheet: {Path.Combine(projectFolder, "out", "image-review.html")}");
@@ -285,6 +306,18 @@ internal static class Program
         }
 
         return failed > 0 ? 1 : 0;
+    }
+
+    /// <summary>The motion-code suffix of a shot filename (e.g. "S01_01_SCN_PU.png" -&gt;
+    /// "PU"), the same convention MotionCodes/export-batch use elsewhere. A name with
+    /// no underscore (or an unrecognized stem) yields the whole stem uppercased, which
+    /// simply never matches a --motion-filter set and is filtered out - the same as any
+    /// other file that doesn't carry a real motion code.</summary>
+    private static string MotionSuffixOf(string file)
+    {
+        var stem = Path.GetFileNameWithoutExtension(file);
+        var idx = stem.LastIndexOf('_');
+        return (idx >= 0 ? stem[(idx + 1)..] : stem).ToUpperInvariant();
     }
 
     /// <summary>True for the wording Renderly's backend uses when Gemini's quota or
@@ -382,6 +415,7 @@ internal static class Program
         string? aspect = null, apiKey = null, renderlyBase = null, imageSize = "1K";
         int? channelId = null, upscaleScale = null;
         var refAssets = new List<int>();
+        HashSet<string>? motionFilter = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -406,6 +440,7 @@ internal static class Program
                 case "--image-size":
                 case "--upscale":
                 case "--ref-asset":
+                case "--motion-filter":
                     if (i + 1 >= args.Length)
                     {
                         throw new ArgumentException($"{arg} needs a value.");
@@ -469,6 +504,18 @@ internal static class Program
                             }
 
                             break;
+                        case "--motion-filter":
+                            motionFilter = args[++i].Split(',')
+                                .Select(t => t.Trim().ToUpperInvariant())
+                                .Where(t => t.Length > 0)
+                                .ToHashSet();
+                            if (motionFilter.Count == 0)
+                            {
+                                throw new ArgumentException(
+                                    "--motion-filter needs codes like \"PL,PR\".");
+                            }
+
+                            break;
                     }
 
                     break;
@@ -514,7 +561,7 @@ internal static class Program
 
         return new Options(
             folder, force, parallel, model, aspect, apiKey, dryRun, listModels,
-            renderlyBase, channelId, imageSize, upscaleScale, refAssets);
+            renderlyBase, channelId, imageSize, upscaleScale, refAssets, motionFilter);
     }
 
     private static void PrintUsage()
@@ -541,6 +588,12 @@ internal static class Program
               --aspect <ratio>   aspect hint (default 16:9); overridden per file when
                                  out\image-batch.json has an "aspect" entry for it
                                  (written by `ImgToVideo.Cli export-batch`)
+              --motion-filter <codes>
+                                 only generate shots whose filename motion-code suffix
+                                 (e.g. "S01_01_SCN_PL.png" -> PL) is in this comma list,
+                                 e.g. "PL,PR" - everything else in the shotlist is left
+                                 untouched (no review entry) for another generator to
+                                 pick up. Omit to generate the whole shotlist as before.
               --api-key <key>    API key for direct mode (default: GEMINI_API_KEY or
                                  GOOGLE_API_KEY env var; Renderly mode uses its own key)
               --force            regenerate even when the file already exists
