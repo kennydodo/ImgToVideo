@@ -315,7 +315,7 @@ public static class PreviewRenderPlanFactory
             var chain = supersample > 1
                 ? $"scale={scaledWidth}:{scaledHeight}:flags=lanczos,"
                 : string.Empty;
-            return chain + BuildCropPanFilter(
+            return chain + LoopStage(pieceCount) + BuildCropPanFilter(
                 clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
                 ",format=yuv420p";
         }
@@ -332,6 +332,7 @@ public static class PreviewRenderPlanFactory
 
         return $"scale={scaledImageWidth}:{scaledImageHeight}:flags=lanczos," +
                $"pad={scaledCanvasWidth}:{scaledCanvasHeight}:(ow-iw)/2:(oh-ih)/2," +
+               LoopStage(pieceCount) +
                BuildCropPanFilter(
                    clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
                ",format=yuv420p";
@@ -496,6 +497,31 @@ public static class PreviewRenderPlanFactory
     };
 
     /// <summary>
+    /// Caches the single frame produced by the (potentially expensive)
+    /// supersample <c>scale</c>/<c>pad</c> stage that precedes this call and
+    /// replays it <paramref name="pieceCount"/> times, so that expensive stage
+    /// only actually runs once per segment instead of once per output frame.
+    ///
+    /// The source is opened with "-loop 1 -r fps" (see
+    /// <see cref="SourceInputArguments"/>) purely so downstream filters see
+    /// correctly-timed, sequentially-numbered frames - that fixed a timing bug
+    /// in an earlier version of this pipeline. But it has a costly side effect:
+    /// every one of those duplicated input frames is a distinct frame as far as
+    /// the filter graph is concerned, so anything placed upstream of this
+    /// filter (in particular the supersample <c>scale=...:flags=lanczos</c>,
+    /// which can be very expensive on large sources) was being recomputed from
+    /// scratch for every single output frame - e.g. 150-200+ times per segment
+    /// - even though its result is identical every time. This filter caches
+    /// that first computed frame (<c>size=1</c>) and serves the cached copy for
+    /// the remaining <c>pieceCount - 1</c> repeats, so the expensive upstream
+    /// work effectively happens exactly once per segment while crop/pan (which
+    /// comes after this and does need a per-frame "n" counter) still sees
+    /// pieceCount distinct, correctly-numbered frames.
+    /// </summary>
+    private static string LoopStage(long pieceCount) =>
+        $"loop=loop={Math.Max(0, pieceCount - 1).ToString(CultureInfo.InvariantCulture)}:size=1:start=0,";
+
+    /// <summary>
     /// Builds the pan/zoom stage of the side chain as an explicit, independently
     /// sized <c>crop</c> (width, height, x and y each interpolated on their own
     /// between <see cref="VideoClip.StartViewport"/> and
@@ -525,7 +551,11 @@ public static class PreviewRenderPlanFactory
     /// the source is opened with "-loop 1 -r fps" (see
     /// <see cref="SourceInputArguments"/>) so it already arrives here as a
     /// correctly-timed, indefinitely repeating stream; crop's own per-frame
-    /// <c>n</c> variable then plays the same role zoompan's "on" did.
+    /// <c>n</c> variable then plays the same role zoompan's "on" did. That
+    /// input-level duplication is also why any expensive filter upstream of
+    /// this one (the supersample scale) needs the separate <see cref="LoopStage"/>
+    /// cache-and-replay filter placed just before this call - otherwise it
+    /// would be recomputed once per output frame instead of once per segment.
     /// </summary>
     private static string BuildCropPanFilter(
         VideoClip clip, long sourceWidth, long scaledWidth, long scaledHeight,
