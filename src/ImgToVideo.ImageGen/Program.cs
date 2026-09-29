@@ -182,6 +182,13 @@ internal static class Program
         }
 
         var apiKey = renderly is null ? RequireApiKey(options.ApiKey) : null;
+        var perFileAspect = LoadPerFileAspect(projectFolder);
+        if (perFileAspect.Count > 0)
+        {
+            Console.WriteLine(
+                $"per-shot aspect ratios: {perFileAspect.Count} loaded from out\image-batch.json");
+        }
+
         var generated = 0;
         var failed = 0;
         var start = DateTime.Now;
@@ -196,15 +203,16 @@ internal static class Program
                     var fullPrompt = document.Style is null
                         ? item.Prompt
                         : document.Style + "\n\n" + item.Prompt;
+                    var aspect = perFileAspect.GetValueOrDefault(item.File, options.Aspect);
                     byte[] data;
                     if (renderly is not null)
                     {
                         data = await GenerateViaRenderlyAsync(
-                            renderly, options, item, fullPrompt, ct);
+                            renderly, options, item, fullPrompt, aspect, ct);
                     }
                     else
                     {
-                        var client = new GeminiImageClient(options.Model, apiKey!, options.Aspect);
+                        var client = new GeminiImageClient(options.Model, apiKey!, aspect);
                         (data, _) = await client.GenerateAsync(fullPrompt, ct);
                     }
 
@@ -245,12 +253,12 @@ internal static class Program
 
     private static async Task<byte[]> GenerateViaRenderlyAsync(
         RenderlyClient renderly, Options options,
-        (string File, string Prompt) item, string fullPrompt, CancellationToken ct)
+        (string File, string Prompt) item, string fullPrompt, string? aspect, CancellationToken ct)
     {
         var name = Path.GetFileNameWithoutExtension(item.File);
         var generation = await renderly.GenerateAsync(
             options.ChannelId!.Value, fullPrompt, name, options.ImageSize,
-            options.Aspect ?? "16:9", options.RefAssetIds, ct);
+            aspect ?? "16:9", options.RefAssetIds, ct);
         if (generation.Status != "done" || generation.ImageUrl is null)
         {
             throw new ImageGenerationException(generation.Error is { Length: > 0 } error
@@ -270,6 +278,45 @@ internal static class Program
         }
 
         return await renderly.DownloadAsync(generation, ct);
+    }
+
+    /// <summary>Per-file aspect-ratio overrides from out\image-batch.json (written by
+    /// `ImgToVideo.Cli export-batch`), so PL/PR/PU/PD shots request the wider or taller
+    /// canvas MotionEngine needs instead of one flat --aspect for the whole batch.
+    /// Missing or unreadable file -> empty map, callers fall back to --aspect.</summary>
+    private static Dictionary<string, string> LoadPerFileAspect(string projectFolder)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var batchPath = Path.Combine(projectFolder, "out", "image-batch.json");
+        if (!File.Exists(batchPath))
+        {
+            return result;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(batchPath));
+            if (doc.RootElement.TryGetProperty("images", out var images))
+            {
+                foreach (var entry in images.EnumerateArray())
+                {
+                    if (entry.TryGetProperty("file", out var fileElement) &&
+                        entry.TryGetProperty("aspect", out var aspectElement) &&
+                        fileElement.GetString() is { Length: > 0 } file &&
+                        aspectElement.GetString() is { Length: > 0 } aspect)
+                    {
+                        result[file] = aspect;
+                    }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            Console.WriteLine(
+                $"[warn] could not read out\\image-batch.json for per-shot aspect ratios: {ex.Message}");
+        }
+
+        return result;
     }
 
     private static void WriteContactSheet(string projectFolder, IReadOnlyList<ReviewItem> review)
@@ -447,7 +494,9 @@ internal static class Program
               --model <name>     Gemini image model (direct mode only; default
                                  gemini-2.5-flash-image; --list-models shows the image models
                                  on your account)
-              --aspect <ratio>   aspect hint (default 16:9)
+              --aspect <ratio>   aspect hint (default 16:9); overridden per file when
+                                 out\image-batch.json has an "aspect" entry for it
+                                 (written by `ImgToVideo.Cli export-batch`)
               --api-key <key>    API key for direct mode (default: GEMINI_API_KEY or
                                  GOOGLE_API_KEY env var; Renderly mode uses its own key)
               --force            regenerate even when the file already exists

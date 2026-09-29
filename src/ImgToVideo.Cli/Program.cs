@@ -97,12 +97,27 @@ if (command == "export-batch")
         ? Directory.GetFiles(imagesDir, "*.png").Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase)
         : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    // Canvas: the pixel size to generate at, so MotionEngine has enough
+    // overscan to crop a real pan/zoom instead of silently falling back to a
+    // push-in (see MotionEngine.PushInFallback). Aspect: the literal ratio
+    // string to hand to whichever generator is used - gemini-2.5-flash-image
+    // (and Renderly, which proxies it) accepts 21:9 and 1:1 alongside plain
+    // 16:9. Google Flow's own UI has no 21:9 toggle, so a FlowBatch job can
+    // only honor the 1:1 entries (PU/PD) and falls back to 16:9 for PL/PR/PV.
     var canvas = new Dictionary<string, string>
     {
         ["ST"] = "2304x1296", ["ZI"] = "2304x1296", ["ZO"] = "2304x1296",
-        ["PL"] = "2880x1296", ["PR"] = "2880x1296",
-        ["PU"] = "2304x2160", ["PD"] = "2304x2160",
+        ["PL"] = "3024x1296", ["PR"] = "3024x1296",
+        ["PU"] = "2304x2304", ["PD"] = "2304x2304",
         ["PV"] = "3840x1296",
+    };
+    var aspect = new Dictionary<string, string>
+    {
+        ["ST"] = "16:9", ["ZI"] = "16:9", ["ZO"] = "16:9",
+        ["PL"] = "21:9", ["PR"] = "21:9",
+        ["PU"] = "1:1", ["PD"] = "1:1",
+        // 3840x1296 is 2.96:1, wider than any preset - 21:9 is the closest legal one.
+        ["PV"] = "21:9",
     };
 
     var missing = new JsonArray();
@@ -121,6 +136,7 @@ if (command == "export-batch")
         {
             ["file"] = file,
             ["canvas"] = canvas.GetValueOrDefault(motion, "2304x1296"),
+            ["aspect"] = aspect.GetValueOrDefault(motion, "16:9"),
             ["motion"] = motion,
             ["prompt"] = (string?)img["prompt"] ?? "",
         });
