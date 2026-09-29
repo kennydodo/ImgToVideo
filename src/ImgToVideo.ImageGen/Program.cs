@@ -206,7 +206,7 @@ internal static class Program
         if (perFileAspect.Count > 0)
         {
             Console.WriteLine(
-                $"per-shot aspect ratios: {perFileAspect.Count} loaded from out\image-batch.json");
+                $"per-shot aspect ratios: {perFileAspect.Count} loaded from out\\image-batch.json");
         }
 
         var generated = 0;
