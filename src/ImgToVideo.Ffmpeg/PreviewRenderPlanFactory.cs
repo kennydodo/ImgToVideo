@@ -371,7 +371,21 @@ public static class PreviewRenderPlanFactory
 
         args.Add("-frames:v");
         args.Add(frameCount.ToString(CultureInfo.InvariantCulture));
-        args.AddRange(VideoEncoderArgs(render.Encoder, render.PreviewPreset,
+        // render.Encoder is "auto" by default - ResolveEncoder is what actually
+        // probes ffmpeg for an available hardware encoder (NVENC/AMF/QSV) and
+        // falls back to libx264. Passing render.Encoder straight through here
+        // used to skip that probe entirely: VideoEncoderArgs' switch doesn't
+        // recognize "auto" and silently fell to its libx264 default, so every
+        // render ran on the CPU even on a machine with a capable GPU. An
+        // already-explicit encoder (e.g. a user who typed "h264_nvenc" into
+        // Settings) is passed straight through as before - only "auto" goes
+        // through the probe.
+        var resolvedEncoder =
+            string.IsNullOrWhiteSpace(render.Encoder) ||
+            render.Encoder.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase)
+                ? ResolveEncoder(render)
+                : render.Encoder;
+        args.AddRange(VideoEncoderArgs(resolvedEncoder, render.PreviewPreset,
                                        render.PreviewCrf, render.PreviewBframes));
         args.Add("-an");
         args.Add(outputPath);
