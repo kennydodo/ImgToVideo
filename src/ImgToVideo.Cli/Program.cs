@@ -99,11 +99,17 @@ if (command == "export-batch")
 
     // Canvas: the pixel size to generate at, so MotionEngine has enough
     // overscan to crop a real pan/zoom instead of silently falling back to a
-    // push-in (see MotionEngine.PushInFallback). Aspect: the literal ratio
-    // string to hand to whichever generator is used - gemini-2.5-flash-image
-    // (and Renderly, which proxies it) accepts 21:9 and 1:1 alongside plain
-    // 16:9. Google Flow's own UI has no 21:9 toggle, so a FlowBatch job can
-    // only honor the 1:1 entries (PU/PD) and falls back to 16:9 for PL/PR/PV.
+    // push-in (see MotionEngine.PushInFallback) - kept square/wide here
+    // regardless of which generator actually produces the image. Aspect: the
+    // literal ratio string for the PAID Gemini API path specifically (via
+    // Renderly's --renderly mode or direct GeminiImageClient); it only
+    // special-cases 21:9 for PL/PR, since that is the one shape Google Flow's
+    // own UI cannot produce at all. PU/PD's 1:1 is left at the API's plain
+    // 16:9 default here on purpose - Flow already offers 1:1 natively and for
+    // free (see FLOWBATCH_ASPECT_BY_MOTION in WhisperRadar, and Renderly's
+    // own Flow Driver), so there is nothing to gain by spending a paid
+    // generation on it. Use Flow (FlowBatch, or engine=renderly/mode=flow)
+    // for PU/PD's overscan; the API is only worth it for PL/PR.
     var canvas = new Dictionary<string, string>
     {
         ["ST"] = "2304x1296", ["ZI"] = "2304x1296", ["ZO"] = "2304x1296",
@@ -115,7 +121,10 @@ if (command == "export-batch")
     {
         ["ST"] = "16:9", ["ZI"] = "16:9", ["ZO"] = "16:9",
         ["PL"] = "21:9", ["PR"] = "21:9",
-        ["PU"] = "1:1", ["PD"] = "1:1",
+        // Free via Flow (1:1) - not worth a paid API call. Flow-side code
+        // paths still request "1:1" for these on their own; this "aspect"
+        // field only feeds the API path.
+        ["PU"] = "16:9", ["PD"] = "16:9",
         // 3840x1296 is 2.96:1, wider than any preset - 21:9 is the closest legal one.
         ["PV"] = "21:9",
     };
