@@ -2,30 +2,87 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
-## 2026-09-28 — REQUEST: default output resolution = Google Flow's native 1376×768
+## 2026-09-30 — TODO: finish this branch (6 failing tests) + add Flow-native 1376×768 as a selectable preset
+
+Tested `feat/per-shot-aspect-ratio` (tip 51ed32a) in a worktree:
+`dotnet test tests/ImgToVideo.Core.Tests` → **261 pass, 6 FAIL**; all 6 PASS on
+master, so the branch introduced them. Two kinds:
+
+1. **REAL render bug — GPU encoder preset.** The new GPU auto-detect picks Intel
+   `h264_qsv` but passes `preset ultrafast` (a libx264-only preset QSV rejects):
+   `[h264_qsv] Unable to parse "preset" option value "ultrafast" → Invalid argument`
+   Fails `PreviewRenderServiceTests.Renders_tiny_preview_end_to_end`. On any
+   machine with Intel QSV the branch breaks preview renders.
+   **Requirement: GPU preferred, CPU fallback** — map a valid preset per encoder
+   (qsv: veryfast/faster…; nvenc: p1..p7; amf: …; else libx264 ultrafast), and if
+   the chosen hw encoder fails to initialise, fall back to libx264 (commit 0e13905
+   aims at this but the preset mapping is wrong).
+
+2. **Stale test expectations (4)** — the per-shot-canvas / supersampling changes
+   altered the ffmpeg plan strings (grid is now `scale=13824:7776`, zoom `z=`,
+   encoder args differ) but the tests still assert the OLD values:
+   - PreviewRenderPlanFactoryTests.Decimal_formatting_is_culture_invariant
+   - PreviewRenderPlanFactoryTests.Join_arguments_blend_both_sides_with_xfade
+   - PreviewRenderPlanFactoryTests.Pan_right_filter_travels_with_constant_zoom
+   - PreviewRenderPlanFactoryTests.Builds_one_segment_per_clip_with_encoder_settings
+
+## 2026-09-28 — DONE: added Flow-native 1376×768 as a selectable preset (default unchanged)
 
 Requested by Kehinde. Google Flow returns image masters at **1376×768** — that is
 the real native size of a generated still, and anything larger is an upscale.
-ImgToVideo should default to that rather than 2560×1440, so a project renders at
-the resolution the images actually are.
 
-- Today's defaults: `OutputOptions.Width/Height = 2560/1440`
-  (`src/ImgToVideo.Core/Options/OutputOptions.cs:5-6`); the Settings preset list
-  is HD 1920×1080 / 2K 2560×1440 / 4K 3840×2160
-  (`src/ImgToVideo.App/SettingsWindow.xaml.cs:192`); `Timeline.Resolution` falls
-  back to 1920×1080 (`src/ImgToVideo.Core/Models/Timeline.cs:9`).
-- Wanted: **1376×768 becomes the default** for new projects, and the preset list
-  gains it (e.g. `1376 × 768 (Flow native)`). The existing HD/2K/4K presets stay
-  selectable for projects that do upscale.
-- Ratio caveat: 1376×768 is 1.7917, not exactly 16:9, and Flow's other ratios are
-  the same (its "9:16" master is 768×1376). Decide whether "Flow native" keeps
-  the exact master size or snaps to the nominal ratio — FlowBatch's upscaler
-  already models both as `fit: exact` vs `fit: aspect` (see its README,
-  "Upscaling").
-- Scope: this is the render/canvas size only. Masters on disk are already
-  1376×768 when FlowBatch's upscale tier is off; when the tier is on, the
-  upscaled files sit next to them (`<name>_2k.png` etc.), so the default should
-  probably key off the master, not the largest file present.
+**Correction (2026-09-30): 2560×1440 stays the default.** 1376×768 is only
+added as a selectable preset for projects sourced from Flow stills that want to
+render at native size — not a change to what new projects default to.
+
+- Defaults unchanged: `OutputOptions.Width/Height = 2560/1440`
+  (`src/ImgToVideo.Core/Options/OutputOptions.cs:5-6`) — no edit needed here.
+  `Timeline.Resolution` fallback (1920×1080,
+  `src/ImgToVideo.Core/Models/Timeline.cs:9`) is unrelated and also untouched.
+- Settings preset list (`src/ImgToVideo.App/SettingsWindow.xaml.cs`,
+  `LoadResolutionPreset()`) now includes `1376 × 768 (Flow native)` alongside
+  the existing HD 1920×1080 / 2K 2560×1440 / 4K 3840×2160 presets. 2K stays the
+  default selection.
+- Ratio note: 1376×768 is 1.7917, not exactly 16:9 (Flow's "9:16" master is
+  768×1376). The preset uses the exact master size, not a nominal-ratio snap —
+  FlowBatch's upscaler separately models `fit: exact` vs `fit: aspect` for
+  anyone who wants to upscale toward a rounder ratio instead.
+
+## 2026-09-30 (afternoon) — DONE: personal default resolution, saveable from Settings
+
+Added a "Save as my default" button next to the Output > Resolution preset in
+Settings. It writes Width/Height straight to the per-user `AppSettings` file
+(`%AppData%\ImgToVideo\app.json` via `AppSettingsStore` - already used for
+`LastProjectFolder`) as `DefaultOutputWidth`/`DefaultOutputHeight`, independent
+of the dialog's own Save/Cancel. A status line under the button shows the
+saved value, or says none is saved yet.
+
+This is a personal, permanent preference, not a project setting: it only
+seeds a BRAND NEW project's `imgtovideo.json` (MainWindow's "first analyze in
+this folder" path) when one doesn't exist yet. Any project that already has
+its own `imgtovideo.json` - including ones with the plain 2560x1440 default -
+is never touched by it. With nothing saved, new projects keep defaulting to
+2560x1440 exactly as before.
+
+## 2026-09-30 (evening) — DONE: personal defaults extended to Motion and Transitions
+
+Same pattern as the Output > Resolution "Save as my default" added earlier
+today: Motion and Transitions sections in Settings each got their own
+"Save as my default" button, writing the section's current values to the
+per-user AppSettings file (`DefaultMotion` / `DefaultTransitions`,
+MotionOptions/TransitionOptions serialized with the same enum converters
+imgtovideo.json uses, so app.json stays human-readable - "EaseInOut", not a
+bare int). A status line shows whether a default is saved.
+
+Still a personal preference, not a project setting: only seeds a BRAND NEW
+project's imgtovideo.json (MainWindow's first-analyze path); a project with
+its own imgtovideo.json is never touched, and with nothing saved a new
+project keeps ProjectOptions' own built-in Motion/Transitions defaults.
+
+The Motion/Transitions construction that used to live inline in
+BtnSave_Click is now `BuildMotionFromFields` / `BuildTransitionsFromFields`,
+shared by the project Save button and the two new default buttons so the
+parsing logic can't drift between them.
 
 ## 2026-09-19 (morning) — DONE: image-batch delta closed, full pipeline rendered
 

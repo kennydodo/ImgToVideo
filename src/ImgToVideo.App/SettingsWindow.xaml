@@ -131,6 +131,14 @@
                                 <TextBox x:Name="TxtStaticMax" Width="48" Padding="3,2" Margin="0,2,12,2"/>
                             </StackPanel>
                         </UniformGrid>
+                        <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                            <Button x:Name="BtnSaveMotionDefault" Content="Save as my default"
+                                    DockPanel.Dock="Left"
+                                    ToolTip="Remember this Motion section as YOUR permanent default for new projects (not this project's setting - applies the next time you start a project with no imgtovideo.json yet)."
+                                    Click="BtnSaveMotionDefault_Click"/>
+                            <TextBlock x:Name="TxtMotionDefaultStatus" DockPanel.Dock="Left"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
                     </StackPanel>
                 </GroupBox>
 
@@ -155,6 +163,14 @@
                             <TextBlock Text="Duration (seconds)" VerticalAlignment="Center"/>
                             <TextBox x:Name="TxtTransitionDuration" Padding="3,2" Margin="0,2,12,2"/>
                         </UniformGrid>
+                        <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                            <Button x:Name="BtnSaveTransitionsDefault" Content="Save as my default"
+                                    DockPanel.Dock="Left"
+                                    ToolTip="Remember this Transitions section as YOUR permanent default for new projects (not this project's setting - applies the next time you start a project with no imgtovideo.json yet)."
+                                    Click="BtnSaveTransitionsDefault_Click"/>
+                            <TextBlock x:Name="TxtTransitionsDefaultStatus" DockPanel.Dock="Left"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
                     </StackPanel>
                 </GroupBox>
 
@@ -211,6 +227,14 @@
                             <TextBlock Text="FPS" VerticalAlignment="Center"/>
                             <TextBox x:Name="TxtOutputFps" Padding="3,2" Margin="0,2,12,2"/>
                         </UniformGrid>
+                        <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                            <Button x:Name="BtnSaveResolutionDefault" Content="Save as my default"
+                                    DockPanel.Dock="Left"
+                                    ToolTip="Remember this Width/Height as YOUR permanent default for new projects (not this project's setting - applies the next time you start a project with no imgtovideo.json yet)."
+                                    Click="BtnSaveResolutionDefault_Click"/>
+                            <TextBlock x:Name="TxtResolutionDefaultStatus" DockPanel.Dock="Left"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
                     </StackPanel>
                 </GroupBox>
 

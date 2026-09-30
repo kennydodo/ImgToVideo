@@ -72,6 +72,14 @@ public partial class SettingsWindow : Window
         TxtPanTravel.Text = F(Options.Motion.PanMaxTravelPercent);
         TxtStaticMin.Text = Options.Motion.StaticEveryMinShots.ToString(CultureInfo.InvariantCulture);
         TxtStaticMax.Text = Options.Motion.StaticEveryMaxShots.ToString(CultureInfo.InvariantCulture);
+        UpdateMotionDefaultStatus();
+    }
+
+    private void UpdateMotionDefaultStatus()
+    {
+        TxtMotionDefaultStatus.Text = AppSettingsStore.Load().DefaultMotion is not null
+            ? "Your default is saved for new projects"
+            : "No personal default saved yet - new projects use the built-in Motion defaults.";
     }
 
     private void LoadTransitions()
@@ -84,6 +92,14 @@ public partial class SettingsWindow : Window
         CmbTransitionAlignment.ItemsSource = TransitionAlignments.All.Select(a => a.Name).ToList();
         CmbTransitionAlignment.SelectedItem = TransitionAlignments.NameOf(Options.Transitions.Alignment);
         TxtTransitionDuration.Text = F(Options.Transitions.DurationSeconds);
+        UpdateTransitionsDefaultStatus();
+    }
+
+    private void UpdateTransitionsDefaultStatus()
+    {
+        TxtTransitionsDefaultStatus.Text = AppSettingsStore.Load().DefaultTransitions is not null
+            ? "Your default is saved for new projects"
+            : "No personal default saved yet - new projects use the built-in Transitions defaults.";
     }
 
     private void LoadNaming()
@@ -103,6 +119,15 @@ public partial class SettingsWindow : Window
         TxtOutputHeight.Text = Options.Output.Height.ToString(CultureInfo.InvariantCulture);
         TxtOutputFps.Text = F(Options.Output.Fps);
         LoadResolutionPreset();
+        UpdateResolutionDefaultStatus();
+    }
+
+    private void UpdateResolutionDefaultStatus()
+    {
+        var saved = AppSettingsStore.Load();
+        TxtResolutionDefaultStatus.Text = saved.DefaultOutputWidth is int w && saved.DefaultOutputHeight is int h
+            ? $"Your default: {w} × {h}"
+            : "No personal default saved yet - new projects use 2560 × 1440.";
     }
 
     private void LoadSceneInference()
@@ -189,7 +214,10 @@ public partial class SettingsWindow : Window
 
     private void LoadResolutionPreset()
     {
-        var presets = new[] { (1920, 1080, "HD"), (2560, 1440, "2K"), (3840, 2160, "4K") };
+        // 1376x768 is Google Flow's native master size, offered as a selectable
+        // preset for projects sourced from Flow stills - it is NOT the default
+        // (2560x1440 / "2K" stays the default; see docs/next-session.md 2026-09-28).
+        var presets = new[] { (1920, 1080, "HD"), (2560, 1440, "2K"), (3840, 2160, "4K"), (1376, 768, "Flow native") };
         CmbResolution.ItemsSource = presets.Select(p => $"{p.Item1} × {p.Item2} ({p.Item3})").ToList();
         var match = presets.FirstOrDefault(p => p.Item1 == Options.Output.Width && p.Item2 == Options.Output.Height);
         CmbResolution.SelectedItem = match.Item3 is not null
@@ -213,6 +241,80 @@ public partial class SettingsWindow : Window
         }
     }
 
+    // Reads the Motion section's fields exactly as BtnSave_Click's Options.Motion
+    // would, but as its own method so the "Save as my default" button can build
+    // the same MotionOptions without going through a full project Save.
+    private MotionOptions BuildMotionFromFields(MotionOptions fallback) => new()
+    {
+        AutoMotionEnabled = ChkAutoMotion.IsChecked == true,
+        MotionDurationMs = L(TxtMotionDuration.Text, fallback.MotionDurationMs),
+        Easing = EasingModes.TryFromName(CmbEasing.SelectedItem as string ?? "", out var easing)
+            ? easing
+            : fallback.Easing,
+        PushInStartPercent = D(TxtPushInStart.Text, fallback.PushInStartPercent),
+        PushInEndPercent = D(TxtPushInEnd.Text, fallback.PushInEndPercent),
+        ZoomOutStartPercent = D(TxtZoomOutStart.Text, fallback.ZoomOutStartPercent),
+        ZoomOutEndPercent = D(TxtZoomOutEnd.Text, fallback.ZoomOutEndPercent),
+        PanMaxTravelPercent = D(TxtPanTravel.Text, fallback.PanMaxTravelPercent),
+        StaticEveryMinShots = I(TxtStaticMin.Text, fallback.StaticEveryMinShots),
+        StaticEveryMaxShots = I(TxtStaticMax.Text, fallback.StaticEveryMaxShots),
+    };
+
+    private TransitionOptions BuildTransitionsFromFields(TransitionOptions fallback) => new()
+    {
+        Enabled = ChkTransitionsEnabled.IsChecked == true,
+        Kind = TransitionCatalog.TryFromName(CmbTransitionKind.SelectedItem as string ?? "", out var kind)
+            ? kind
+            : fallback.Kind,
+        SceneBoundaryKind = TransitionCatalog.TryFromName(
+                CmbSceneBoundaryKind.SelectedItem as string ?? "", out var boundaryKind)
+            ? boundaryKind
+            : fallback.SceneBoundaryKind,
+        Alignment = TransitionAlignments.TryFromName(
+                CmbTransitionAlignment.SelectedItem as string ?? "", out var alignment)
+            ? alignment
+            : fallback.Alignment,
+        DurationSeconds = D(TxtTransitionDuration.Text, fallback.DurationSeconds),
+    };
+
+    private void BtnSaveMotionDefault_Click(object sender, RoutedEventArgs e)
+    {
+        var saved = AppSettingsStore.Load();
+        saved.DefaultMotion = BuildMotionFromFields(Options.Motion);
+        AppSettingsStore.Save(saved);
+        UpdateMotionDefaultStatus();
+    }
+
+    private void BtnSaveTransitionsDefault_Click(object sender, RoutedEventArgs e)
+    {
+        var saved = AppSettingsStore.Load();
+        saved.DefaultTransitions = BuildTransitionsFromFields(Options.Transitions);
+        AppSettingsStore.Save(saved);
+        UpdateTransitionsDefaultStatus();
+    }
+
+    private void BtnSaveResolutionDefault_Click(object sender, RoutedEventArgs e)
+    {
+        var width = I(TxtOutputWidth.Text, Options.Output.Width);
+        var height = I(TxtOutputHeight.Text, Options.Output.Height);
+        if (width <= 0 || height <= 0)
+        {
+            MessageBox.Show(this, "Enter a valid Width and Height before saving a default.",
+                "ImgToVideo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // A personal preference (this user, this machine), not a project
+        // setting - written straight to AppSettings rather than staged into
+        // Options/imgtovideo.json, so it takes effect immediately and
+        // independently of whether the user clicks Save or Cancel below.
+        var saved = AppSettingsStore.Load();
+        saved.DefaultOutputWidth = width;
+        saved.DefaultOutputHeight = height;
+        AppSettingsStore.Save(saved);
+        UpdateResolutionDefaultStatus();
+    }
+
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         var next = new ProjectOptions
@@ -226,37 +328,8 @@ public partial class SettingsWindow : Window
                 MaxImageSeconds = D(TxtTimingMax.Text, Options.Timing.MaxImageSeconds),
                 FloorImageSeconds = D(TxtTimingFloor.Text, Options.Timing.FloorImageSeconds),
             },
-            Motion = new MotionOptions
-            {
-                AutoMotionEnabled = ChkAutoMotion.IsChecked == true,
-                MotionDurationMs = L(TxtMotionDuration.Text, Options.Motion.MotionDurationMs),
-                Easing = EasingModes.TryFromName(CmbEasing.SelectedItem as string ?? "", out var easing)
-                    ? easing
-                    : Options.Motion.Easing,
-                PushInStartPercent = D(TxtPushInStart.Text, Options.Motion.PushInStartPercent),
-                PushInEndPercent = D(TxtPushInEnd.Text, Options.Motion.PushInEndPercent),
-                ZoomOutStartPercent = D(TxtZoomOutStart.Text, Options.Motion.ZoomOutStartPercent),
-                ZoomOutEndPercent = D(TxtZoomOutEnd.Text, Options.Motion.ZoomOutEndPercent),
-                PanMaxTravelPercent = D(TxtPanTravel.Text, Options.Motion.PanMaxTravelPercent),
-                StaticEveryMinShots = I(TxtStaticMin.Text, Options.Motion.StaticEveryMinShots),
-                StaticEveryMaxShots = I(TxtStaticMax.Text, Options.Motion.StaticEveryMaxShots),
-            },
-            Transitions = new TransitionOptions
-            {
-                Enabled = ChkTransitionsEnabled.IsChecked == true,
-                Kind = TransitionCatalog.TryFromName(CmbTransitionKind.SelectedItem as string ?? "", out var kind)
-                    ? kind
-                    : Options.Transitions.Kind,
-                SceneBoundaryKind = TransitionCatalog.TryFromName(
-                        CmbSceneBoundaryKind.SelectedItem as string ?? "", out var boundaryKind)
-                    ? boundaryKind
-                    : Options.Transitions.SceneBoundaryKind,
-                Alignment = TransitionAlignments.TryFromName(
-                        CmbTransitionAlignment.SelectedItem as string ?? "", out var alignment)
-                    ? alignment
-                    : Options.Transitions.Alignment,
-                DurationSeconds = D(TxtTransitionDuration.Text, Options.Transitions.DurationSeconds),
-            },
+            Motion = BuildMotionFromFields(Options.Motion),
+            Transitions = BuildTransitionsFromFields(Options.Transitions),
             Naming = new NamingOptions
             {
                 MotionCodesEnabled = ChkMotionCodes.IsChecked == true,
