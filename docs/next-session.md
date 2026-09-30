@@ -48,6 +48,22 @@ render at native size — not a change to what new projects default to.
   FlowBatch's upscaler separately models `fit: exact` vs `fit: aspect` for
   anyone who wants to upscale toward a rounder ratio instead.
 
+## 2026-09-30 (afternoon) — DONE: personal default resolution, saveable from Settings
+
+Added a "Save as my default" button next to the Output > Resolution preset in
+Settings. It writes Width/Height straight to the per-user `AppSettings` file
+(`%AppData%\ImgToVideo\app.json` via `AppSettingsStore` - already used for
+`LastProjectFolder`) as `DefaultOutputWidth`/`DefaultOutputHeight`, independent
+of the dialog's own Save/Cancel. A status line under the button shows the
+saved value, or says none is saved yet.
+
+This is a personal, permanent preference, not a project setting: it only
+seeds a BRAND NEW project's `imgtovideo.json` (MainWindow's "first analyze in
+this folder" path) when one doesn't exist yet. Any project that already has
+its own `imgtovideo.json` - including ones with the plain 2560x1440 default -
+is never touched by it. With nothing saved, new projects keep defaulting to
+2560x1440 exactly as before.
+
 ## 2026-09-19 (morning) — DONE: image-batch delta closed, full pipeline rendered
 
 The "fix the delta (22 → 8)" plan below is COMPLETE — with one twist: the 22-card

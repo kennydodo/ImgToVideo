@@ -103,6 +103,15 @@ public partial class SettingsWindow : Window
         TxtOutputHeight.Text = Options.Output.Height.ToString(CultureInfo.InvariantCulture);
         TxtOutputFps.Text = F(Options.Output.Fps);
         LoadResolutionPreset();
+        UpdateResolutionDefaultStatus();
+    }
+
+    private void UpdateResolutionDefaultStatus()
+    {
+        var saved = AppSettingsStore.Load();
+        TxtResolutionDefaultStatus.Text = saved.DefaultOutputWidth is int w && saved.DefaultOutputHeight is int h
+            ? $"Your default: {w} × {h}"
+            : "No personal default saved yet - new projects use 2560 × 1440.";
     }
 
     private void LoadSceneInference()
@@ -214,6 +223,28 @@ public partial class SettingsWindow : Window
             TxtOutputWidth.Text = match.Groups[1].Value;
             TxtOutputHeight.Text = match.Groups[2].Value;
         }
+    }
+
+    private void BtnSaveResolutionDefault_Click(object sender, RoutedEventArgs e)
+    {
+        var width = I(TxtOutputWidth.Text, Options.Output.Width);
+        var height = I(TxtOutputHeight.Text, Options.Output.Height);
+        if (width <= 0 || height <= 0)
+        {
+            MessageBox.Show(this, "Enter a valid Width and Height before saving a default.",
+                "ImgToVideo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // A personal preference (this user, this machine), not a project
+        // setting - written straight to AppSettings rather than staged into
+        // Options/imgtovideo.json, so it takes effect immediately and
+        // independently of whether the user clicks Save or Cancel below.
+        var saved = AppSettingsStore.Load();
+        saved.DefaultOutputWidth = width;
+        saved.DefaultOutputHeight = height;
+        AppSettingsStore.Save(saved);
+        UpdateResolutionDefaultStatus();
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)

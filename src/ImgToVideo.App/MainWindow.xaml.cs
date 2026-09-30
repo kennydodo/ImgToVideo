@@ -75,9 +75,22 @@ public partial class MainWindow : Window
             {
                 // First analyze in this folder: write the default options so there
                 // is a file to edit (planner, fps, …) without hand-creating JSON.
+                // If the user has saved a personal default resolution (Settings ->
+                // Output -> "Save as my default"), seed the new project with that
+                // instead of OutputOptions' own built-in default (2560x1440) - a
+                // project that already has its own imgtovideo.json is never
+                // touched by this, only a brand new one.
+                var seeded = new ProjectOptions();
+                var savedDefault = AppSettingsStore.Load();
+                if (savedDefault.DefaultOutputWidth is int dw && savedDefault.DefaultOutputHeight is int dh)
+                {
+                    seeded.Output.Width = dw;
+                    seeded.Output.Height = dh;
+                }
+
                 try
                 {
-                    OptionsJson.Save(new ProjectOptions(), optionsPath);
+                    OptionsJson.Save(seeded, optionsPath);
                 }
                 catch (IOException)
                 {
