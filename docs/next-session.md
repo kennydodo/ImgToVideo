@@ -64,6 +64,26 @@ its own `imgtovideo.json` - including ones with the plain 2560x1440 default -
 is never touched by it. With nothing saved, new projects keep defaulting to
 2560x1440 exactly as before.
 
+## 2026-09-30 (evening) — DONE: personal defaults extended to Motion and Transitions
+
+Same pattern as the Output > Resolution "Save as my default" added earlier
+today: Motion and Transitions sections in Settings each got their own
+"Save as my default" button, writing the section's current values to the
+per-user AppSettings file (`DefaultMotion` / `DefaultTransitions`,
+MotionOptions/TransitionOptions serialized with the same enum converters
+imgtovideo.json uses, so app.json stays human-readable - "EaseInOut", not a
+bare int). A status line shows whether a default is saved.
+
+Still a personal preference, not a project setting: only seeds a BRAND NEW
+project's imgtovideo.json (MainWindow's first-analyze path); a project with
+its own imgtovideo.json is never touched, and with nothing saved a new
+project keeps ProjectOptions' own built-in Motion/Transitions defaults.
+
+The Motion/Transitions construction that used to live inline in
+BtnSave_Click is now `BuildMotionFromFields` / `BuildTransitionsFromFields`,
+shared by the project Save button and the two new default buttons so the
+parsing logic can't drift between them.
+
 ## 2026-09-19 (morning) — DONE: image-batch delta closed, full pipeline rendered
 
 The "fix the delta (22 → 8)" plan below is COMPLETE — with one twist: the 22-card

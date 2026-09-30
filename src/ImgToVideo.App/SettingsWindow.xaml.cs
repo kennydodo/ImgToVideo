@@ -72,6 +72,14 @@ public partial class SettingsWindow : Window
         TxtPanTravel.Text = F(Options.Motion.PanMaxTravelPercent);
         TxtStaticMin.Text = Options.Motion.StaticEveryMinShots.ToString(CultureInfo.InvariantCulture);
         TxtStaticMax.Text = Options.Motion.StaticEveryMaxShots.ToString(CultureInfo.InvariantCulture);
+        UpdateMotionDefaultStatus();
+    }
+
+    private void UpdateMotionDefaultStatus()
+    {
+        TxtMotionDefaultStatus.Text = AppSettingsStore.Load().DefaultMotion is not null
+            ? "Your default is saved for new projects"
+            : "No personal default saved yet - new projects use the built-in Motion defaults.";
     }
 
     private void LoadTransitions()
@@ -84,6 +92,14 @@ public partial class SettingsWindow : Window
         CmbTransitionAlignment.ItemsSource = TransitionAlignments.All.Select(a => a.Name).ToList();
         CmbTransitionAlignment.SelectedItem = TransitionAlignments.NameOf(Options.Transitions.Alignment);
         TxtTransitionDuration.Text = F(Options.Transitions.DurationSeconds);
+        UpdateTransitionsDefaultStatus();
+    }
+
+    private void UpdateTransitionsDefaultStatus()
+    {
+        TxtTransitionsDefaultStatus.Text = AppSettingsStore.Load().DefaultTransitions is not null
+            ? "Your default is saved for new projects"
+            : "No personal default saved yet - new projects use the built-in Transitions defaults.";
     }
 
     private void LoadNaming()
@@ -225,6 +241,58 @@ public partial class SettingsWindow : Window
         }
     }
 
+    // Reads the Motion section's fields exactly as BtnSave_Click's Options.Motion
+    // would, but as its own method so the "Save as my default" button can build
+    // the same MotionOptions without going through a full project Save.
+    private MotionOptions BuildMotionFromFields(MotionOptions fallback) => new()
+    {
+        AutoMotionEnabled = ChkAutoMotion.IsChecked == true,
+        MotionDurationMs = L(TxtMotionDuration.Text, fallback.MotionDurationMs),
+        Easing = EasingModes.TryFromName(CmbEasing.SelectedItem as string ?? "", out var easing)
+            ? easing
+            : fallback.Easing,
+        PushInStartPercent = D(TxtPushInStart.Text, fallback.PushInStartPercent),
+        PushInEndPercent = D(TxtPushInEnd.Text, fallback.PushInEndPercent),
+        ZoomOutStartPercent = D(TxtZoomOutStart.Text, fallback.ZoomOutStartPercent),
+        ZoomOutEndPercent = D(TxtZoomOutEnd.Text, fallback.ZoomOutEndPercent),
+        PanMaxTravelPercent = D(TxtPanTravel.Text, fallback.PanMaxTravelPercent),
+        StaticEveryMinShots = I(TxtStaticMin.Text, fallback.StaticEveryMinShots),
+        StaticEveryMaxShots = I(TxtStaticMax.Text, fallback.StaticEveryMaxShots),
+    };
+
+    private TransitionOptions BuildTransitionsFromFields(TransitionOptions fallback) => new()
+    {
+        Enabled = ChkTransitionsEnabled.IsChecked == true,
+        Kind = TransitionCatalog.TryFromName(CmbTransitionKind.SelectedItem as string ?? "", out var kind)
+            ? kind
+            : fallback.Kind,
+        SceneBoundaryKind = TransitionCatalog.TryFromName(
+                CmbSceneBoundaryKind.SelectedItem as string ?? "", out var boundaryKind)
+            ? boundaryKind
+            : fallback.SceneBoundaryKind,
+        Alignment = TransitionAlignments.TryFromName(
+                CmbTransitionAlignment.SelectedItem as string ?? "", out var alignment)
+            ? alignment
+            : fallback.Alignment,
+        DurationSeconds = D(TxtTransitionDuration.Text, fallback.DurationSeconds),
+    };
+
+    private void BtnSaveMotionDefault_Click(object sender, RoutedEventArgs e)
+    {
+        var saved = AppSettingsStore.Load();
+        saved.DefaultMotion = BuildMotionFromFields(Options.Motion);
+        AppSettingsStore.Save(saved);
+        UpdateMotionDefaultStatus();
+    }
+
+    private void BtnSaveTransitionsDefault_Click(object sender, RoutedEventArgs e)
+    {
+        var saved = AppSettingsStore.Load();
+        saved.DefaultTransitions = BuildTransitionsFromFields(Options.Transitions);
+        AppSettingsStore.Save(saved);
+        UpdateTransitionsDefaultStatus();
+    }
+
     private void BtnSaveResolutionDefault_Click(object sender, RoutedEventArgs e)
     {
         var width = I(TxtOutputWidth.Text, Options.Output.Width);
@@ -260,37 +328,8 @@ public partial class SettingsWindow : Window
                 MaxImageSeconds = D(TxtTimingMax.Text, Options.Timing.MaxImageSeconds),
                 FloorImageSeconds = D(TxtTimingFloor.Text, Options.Timing.FloorImageSeconds),
             },
-            Motion = new MotionOptions
-            {
-                AutoMotionEnabled = ChkAutoMotion.IsChecked == true,
-                MotionDurationMs = L(TxtMotionDuration.Text, Options.Motion.MotionDurationMs),
-                Easing = EasingModes.TryFromName(CmbEasing.SelectedItem as string ?? "", out var easing)
-                    ? easing
-                    : Options.Motion.Easing,
-                PushInStartPercent = D(TxtPushInStart.Text, Options.Motion.PushInStartPercent),
-                PushInEndPercent = D(TxtPushInEnd.Text, Options.Motion.PushInEndPercent),
-                ZoomOutStartPercent = D(TxtZoomOutStart.Text, Options.Motion.ZoomOutStartPercent),
-                ZoomOutEndPercent = D(TxtZoomOutEnd.Text, Options.Motion.ZoomOutEndPercent),
-                PanMaxTravelPercent = D(TxtPanTravel.Text, Options.Motion.PanMaxTravelPercent),
-                StaticEveryMinShots = I(TxtStaticMin.Text, Options.Motion.StaticEveryMinShots),
-                StaticEveryMaxShots = I(TxtStaticMax.Text, Options.Motion.StaticEveryMaxShots),
-            },
-            Transitions = new TransitionOptions
-            {
-                Enabled = ChkTransitionsEnabled.IsChecked == true,
-                Kind = TransitionCatalog.TryFromName(CmbTransitionKind.SelectedItem as string ?? "", out var kind)
-                    ? kind
-                    : Options.Transitions.Kind,
-                SceneBoundaryKind = TransitionCatalog.TryFromName(
-                        CmbSceneBoundaryKind.SelectedItem as string ?? "", out var boundaryKind)
-                    ? boundaryKind
-                    : Options.Transitions.SceneBoundaryKind,
-                Alignment = TransitionAlignments.TryFromName(
-                        CmbTransitionAlignment.SelectedItem as string ?? "", out var alignment)
-                    ? alignment
-                    : Options.Transitions.Alignment,
-                DurationSeconds = D(TxtTransitionDuration.Text, Options.Transitions.DurationSeconds),
-            },
+            Motion = BuildMotionFromFields(Options.Motion),
+            Transitions = BuildTransitionsFromFields(Options.Transitions),
             Naming = new NamingOptions
             {
                 MotionCodesEnabled = ChkMotionCodes.IsChecked == true,
