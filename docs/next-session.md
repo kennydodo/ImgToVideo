@@ -2,7 +2,7 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
-## 2026-09-30 — TODO: finish this branch (6 failing tests) + make Flow-native 1376×768 the render default
+## 2026-09-30 — TODO: finish this branch (6 failing tests) + add Flow-native 1376×768 as a selectable preset
 
 Tested `feat/per-shot-aspect-ratio` (tip 51ed32a) in a worktree:
 `dotnet test tests/ImgToVideo.Core.Tests` → **261 pass, 6 FAIL**; all 6 PASS on
@@ -26,30 +26,27 @@ master, so the branch introduced them. Two kinds:
    - PreviewRenderPlanFactoryTests.Pan_right_filter_travels_with_constant_zoom
    - PreviewRenderPlanFactoryTests.Builds_one_segment_per_clip_with_encoder_settings
 
-## 2026-09-28 — REQUEST: default output resolution = Google Flow's native 1376×768
+## 2026-09-28 — DONE: added Flow-native 1376×768 as a selectable preset (default unchanged)
 
 Requested by Kehinde. Google Flow returns image masters at **1376×768** — that is
 the real native size of a generated still, and anything larger is an upscale.
-ImgToVideo should default to that rather than 2560×1440, so a project renders at
-the resolution the images actually are.
 
-- Today's defaults: `OutputOptions.Width/Height = 2560/1440`
-  (`src/ImgToVideo.Core/Options/OutputOptions.cs:5-6`); the Settings preset list
-  is HD 1920×1080 / 2K 2560×1440 / 4K 3840×2160
-  (`src/ImgToVideo.App/SettingsWindow.xaml.cs:192`); `Timeline.Resolution` falls
-  back to 1920×1080 (`src/ImgToVideo.Core/Models/Timeline.cs:9`).
-- Wanted: **1376×768 becomes the default** for new projects, and the preset list
-  gains it (e.g. `1376 × 768 (Flow native)`). The existing HD/2K/4K presets stay
-  selectable for projects that do upscale.
-- Ratio caveat: 1376×768 is 1.7917, not exactly 16:9, and Flow's other ratios are
-  the same (its "9:16" master is 768×1376). Decide whether "Flow native" keeps
-  the exact master size or snaps to the nominal ratio — FlowBatch's upscaler
-  already models both as `fit: exact` vs `fit: aspect` (see its README,
-  "Upscaling").
-- Scope: this is the render/canvas size only. Masters on disk are already
-  1376×768 when FlowBatch's upscale tier is off; when the tier is on, the
-  upscaled files sit next to them (`<name>_2k.png` etc.), so the default should
-  probably key off the master, not the largest file present.
+**Correction (2026-09-30): 2560×1440 stays the default.** 1376×768 is only
+added as a selectable preset for projects sourced from Flow stills that want to
+render at native size — not a change to what new projects default to.
+
+- Defaults unchanged: `OutputOptions.Width/Height = 2560/1440`
+  (`src/ImgToVideo.Core/Options/OutputOptions.cs:5-6`) — no edit needed here.
+  `Timeline.Resolution` fallback (1920×1080,
+  `src/ImgToVideo.Core/Models/Timeline.cs:9`) is unrelated and also untouched.
+- Settings preset list (`src/ImgToVideo.App/SettingsWindow.xaml.cs`,
+  `LoadResolutionPreset()`) now includes `1376 × 768 (Flow native)` alongside
+  the existing HD 1920×1080 / 2K 2560×1440 / 4K 3840×2160 presets. 2K stays the
+  default selection.
+- Ratio note: 1376×768 is 1.7917, not exactly 16:9 (Flow's "9:16" master is
+  768×1376). The preset uses the exact master size, not a nominal-ratio snap —
+  FlowBatch's upscaler separately models `fit: exact` vs `fit: aspect` for
+  anyone who wants to upscale toward a rounder ratio instead.
 
 ## 2026-09-19 (morning) — DONE: image-batch delta closed, full pipeline rendered
 

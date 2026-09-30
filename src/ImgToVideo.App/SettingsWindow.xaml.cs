@@ -189,7 +189,10 @@ public partial class SettingsWindow : Window
 
     private void LoadResolutionPreset()
     {
-        var presets = new[] { (1920, 1080, "HD"), (2560, 1440, "2K"), (3840, 2160, "4K") };
+        // 1376x768 is Google Flow's native master size, offered as a selectable
+        // preset for projects sourced from Flow stills - it is NOT the default
+        // (2560x1440 / "2K" stays the default; see docs/next-session.md 2026-09-28).
+        var presets = new[] { (1920, 1080, "HD"), (2560, 1440, "2K"), (3840, 2160, "4K"), (1376, 768, "Flow native") };
         CmbResolution.ItemsSource = presets.Select(p => $"{p.Item1} × {p.Item2} ({p.Item3})").ToList();
         var match = presets.FirstOrDefault(p => p.Item1 == Options.Output.Width && p.Item2 == Options.Output.Height);
         CmbResolution.SelectedItem = match.Item3 is not null
