@@ -2,6 +2,30 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-09-30 — TODO: finish this branch (6 failing tests) + make Flow-native 1376×768 the render default
+
+Tested `feat/per-shot-aspect-ratio` (tip 51ed32a) in a worktree:
+`dotnet test tests/ImgToVideo.Core.Tests` → **261 pass, 6 FAIL**; all 6 PASS on
+master, so the branch introduced them. Two kinds:
+
+1. **REAL render bug — GPU encoder preset.** The new GPU auto-detect picks Intel
+   `h264_qsv` but passes `preset ultrafast` (a libx264-only preset QSV rejects):
+   `[h264_qsv] Unable to parse "preset" option value "ultrafast" → Invalid argument`
+   Fails `PreviewRenderServiceTests.Renders_tiny_preview_end_to_end`. On any
+   machine with Intel QSV the branch breaks preview renders.
+   **Requirement: GPU preferred, CPU fallback** — map a valid preset per encoder
+   (qsv: veryfast/faster…; nvenc: p1..p7; amf: …; else libx264 ultrafast), and if
+   the chosen hw encoder fails to initialise, fall back to libx264 (commit 0e13905
+   aims at this but the preset mapping is wrong).
+
+2. **Stale test expectations (4)** — the per-shot-canvas / supersampling changes
+   altered the ffmpeg plan strings (grid is now `scale=13824:7776`, zoom `z=`,
+   encoder args differ) but the tests still assert the OLD values:
+   - PreviewRenderPlanFactoryTests.Decimal_formatting_is_culture_invariant
+   - PreviewRenderPlanFactoryTests.Join_arguments_blend_both_sides_with_xfade
+   - PreviewRenderPlanFactoryTests.Pan_right_filter_travels_with_constant_zoom
+   - PreviewRenderPlanFactoryTests.Builds_one_segment_per_clip_with_encoder_settings
+
 ## 2026-09-28 — REQUEST: default output resolution = Google Flow's native 1376×768
 
 Requested by Kehinde. Google Flow returns image masters at **1376×768** — that is
