@@ -205,7 +205,7 @@ public static class PreviewRenderPlanFactory
     /// Opens a still-image source clip as an infinite, correctly-timed stream:
     /// "-loop 1" repeats the single decoded frame indefinitely and "-r" stamps
     /// it at the project's frame rate, so downstream filters (crop, in
-    /// particular - see BuildCropPanFilter) see a plain sequential frame
+    /// particular - see BuildFixedSizeCropFilter) see a plain sequential frame
     /// stream at the right pace, without needing their own frame-duplication
     /// or retiming logic. Trimmed to exactly the frames each segment needs by
     /// the "-frames:v" already applied in WrapSegmentArguments.
@@ -306,6 +306,7 @@ public static class PreviewRenderPlanFactory
 
         var viewportsInsideImage =
             clip.StartViewport.IsInside(imageBounds) && clip.EndViewport.IsInside(imageBounds);
+        var sizeChanges = ViewportSizeChanges(clip);
 
         if (viewportsInsideImage)
         {
@@ -315,9 +316,19 @@ public static class PreviewRenderPlanFactory
             var chain = supersample > 1
                 ? $"scale={scaledWidth}:{scaledHeight}:flags=lanczos,"
                 : string.Empty;
-            return chain + LoopStage(pieceCount) + BuildCropPanFilter(
-                clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
-                ",format=yuv420p";
+
+            // See ViewportSizeChanges: zoompan pulls exactly one upstream frame
+            // per segment on its own (its "d" is a self-contained repeat count,
+            // not a real per-frame stream request), so - unlike the crop path -
+            // it needs no LoopStage to keep the supersample scale from being
+            // recomputed per output frame.
+            return sizeChanges
+                ? chain + BuildZoomPanFilter(
+                    clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
+                    ",format=yuv420p"
+                : chain + LoopStage(pieceCount) + BuildFixedSizeCropFilter(
+                    clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
+                    ",format=yuv420p";
         }
 
         var canvasWidth = Even(Math.Max(
@@ -329,14 +340,30 @@ public static class PreviewRenderPlanFactory
         var scaledCanvasHeight = canvasHeight * supersampleFactor;
         var scaledImageWidth = sourceWidth * supersampleFactor;
         var scaledImageHeight = sourceHeight * supersampleFactor;
+        var padChain = $"scale={scaledImageWidth}:{scaledImageHeight}:flags=lanczos," +
+               $"pad={scaledCanvasWidth}:{scaledCanvasHeight}:(ow-iw)/2:(oh-ih)/2,";
 
-        return $"scale={scaledImageWidth}:{scaledImageHeight}:flags=lanczos," +
-               $"pad={scaledCanvasWidth}:{scaledCanvasHeight}:(ow-iw)/2:(oh-ih)/2," +
-               LoopStage(pieceCount) +
-               BuildCropPanFilter(
-                   clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
-               ",format=yuv420p";
+        return sizeChanges
+            ? padChain + BuildZoomPanFilter(
+                clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
+                ",format=yuv420p"
+            : padChain + LoopStage(pieceCount) + BuildFixedSizeCropFilter(
+                clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
+                ",format=yuv420p";
     }
+
+    /// <summary>
+    /// True when a clip's viewport width or height actually differs between
+    /// <see cref="VideoClip.StartViewport"/> and <see cref="VideoClip.EndViewport"/>
+    /// (Zoom In/Out, Push In) as opposed to staying fixed while only position
+    /// moves (Pan Left/Right/Up/Down, Static). This decides which filter
+    /// <see cref="BuildSideChain"/> uses - see <see cref="BuildFixedSizeCropFilter"/>
+    /// and <see cref="BuildZoomPanFilter"/> for why the two cases cannot share
+    /// one implementation.
+    /// </summary>
+    private static bool ViewportSizeChanges(VideoClip clip) =>
+        Math.Abs(clip.StartViewport.Width - clip.EndViewport.Width) > 0.01 ||
+        Math.Abs(clip.StartViewport.Height - clip.EndViewport.Height) > 0.01;
 
     private static long Even(double value) =>
         (long)Math.Round(value / 2, MidpointRounding.AwayFromZero) * 2;
@@ -608,42 +635,143 @@ public static class PreviewRenderPlanFactory
         $"loop=loop={Math.Max(0, pieceCount - 1).ToString(CultureInfo.InvariantCulture)}:size=1:start=0,";
 
     /// <summary>
-    /// Builds the pan/zoom stage of the side chain as an explicit, independently
-    /// sized <c>crop</c> (width, height, x and y each interpolated on their own
-    /// between <see cref="VideoClip.StartViewport"/> and
-    /// <see cref="VideoClip.EndViewport"/>) followed by a plain resize to the
+    /// Builds the pan stage of the side chain for clips whose viewport size
+    /// never changes (Pan Left/Right/Up/Down, Static) as an explicit
+    /// <c>crop</c> - a fixed, precomputed width/height, with only x and y
+    /// interpolated between <see cref="VideoClip.StartViewport"/> and
+    /// <see cref="VideoClip.EndViewport"/> - followed by a plain resize to the
     /// render's preview size.
     ///
-    /// This replaces an earlier <c>zoompan</c>-based implementation. zoompan's
-    /// <c>z</c> (zoom) parameter always crops <c>iw/z</c> by <c>ih/z</c> - the
-    /// SAME ratio on both axes as the source frame - so it can only ever produce
-    /// a crop window with the source's own aspect ratio. That is fine for
-    /// Zoom In/Out (which shrink evenly on both axes) and incidentally close
-    /// enough for Pan Left/Right (which move only in X), but it cannot express
-    /// Pan Up/Down at all: those only change Y, so the single shared zoom value
-    /// stays fixed at 1 for the whole clip, which forces zoompan's y-clamp
-    /// bound (<c>ih-ih/zoom</c>) to exactly 0 and the pan never moves. The same
-    /// coupling also over-crops Pan Left/Right vertically whenever the source
-    /// isn't already exactly the output's aspect ratio. Since
-    /// <see cref="VideoClip.StartViewport"/>/<see cref="VideoClip.EndViewport"/>
-    /// are always constructed (see MotionEngine.PlanClip) to already match the
-    /// output aspect ratio, an explicit crop needs no zoom coupling at all: each
-    /// axis is interpolated independently, and the trailing scale is a clean,
-    /// non-distorting resize because the crop's aspect always matches
+    /// This (and <see cref="BuildZoomPanFilter"/> for clips whose size DOES
+    /// change) replaced an earlier single <c>zoompan</c>-based implementation.
+    /// zoompan's <c>z</c> (zoom) parameter always crops <c>iw/z</c> by
+    /// <c>ih/z</c> - the SAME ratio on both axes as the source frame - so it
+    /// can only ever produce a crop window with the source's own aspect
+    /// ratio. That is fine for Zoom In/Out (which shrink evenly on both axes)
+    /// and incidentally close enough for Pan Left/Right (which move only in
+    /// X), but it cannot express Pan Up/Down at all: those only change Y, so
+    /// the single shared zoom value stays fixed at 1 for the whole clip,
+    /// which forces zoompan's y-clamp bound (<c>ih-ih/zoom</c>) to exactly 0
+    /// and the pan never moves. The same coupling also over-crops Pan
+    /// Left/Right vertically whenever the source isn't already exactly the
+    /// output's aspect ratio. Since <see cref="VideoClip.StartViewport"/>/
+    /// <see cref="VideoClip.EndViewport"/> are always constructed (see
+    /// MotionEngine.PlanClip) to already match the output aspect ratio, an
+    /// explicit crop needs no zoom coupling at all for a pan: x and y move
+    /// independently, and the trailing scale is a clean, non-distorting
+    /// resize because the crop's aspect always matches
     /// PreviewWidth:PreviewHeight already.
     ///
-    /// Because <c>crop</c> (unlike <c>zoompan</c>) does not itself expand a
-    /// single input frame into <paramref name="pieceCount"/> output frames,
-    /// the source is opened with "-loop 1 -r fps" (see
-    /// <see cref="SourceInputArguments"/>) so it already arrives here as a
-    /// correctly-timed, indefinitely repeating stream; crop's own per-frame
-    /// <c>n</c> variable then plays the same role zoompan's "on" did. That
+    /// Width and height are passed to <c>crop</c> as plain precomputed
+    /// numbers rather than "n"-dependent expressions - deliberately, even
+    /// though they're mathematically constant here anyway. ffmpeg's
+    /// <c>crop</c> filter fixes its OUTPUT LINK's frame size once, when the
+    /// filter is configured, because every filter downstream of it in the
+    /// graph is negotiated against a single fixed frame size; consequently
+    /// its <c>w</c>/<c>h</c> expressions are only ever evaluated ONCE, at
+    /// that configuration point (effectively with "n" fixed at 0), never
+    /// again for later frames, no matter what they reference. (x/y, which
+    /// only shift the crop's position and never its output size, have no
+    /// such restriction and genuinely re-evaluate every frame - confirmed by
+    /// direct reproduction.) An earlier version of this method embedded "n"
+    /// in width/height too, for every motion type including pans - for a
+    /// pan, since width/height are already constant, that silently evaluated
+    /// to the same value "n" would have given at frame 0 anyway, so nothing
+    /// looked wrong. But it meant that for Zoom In/Out and Push In - which
+    /// actually need width/height to change over the clip - the crop window
+    /// was frozen at its very first frame's size for the ENTIRE remainder of
+    /// the segment: verified directly by rendering a real clip and finding
+    /// well over a hundred consecutive output frames byte-for-byte identical.
+    /// Those motion types are now built by <see cref="BuildZoomPanFilter"/>
+    /// instead, whose zoompan-based <c>z</c> is a sampling parameter rather
+    /// than an output-size parameter and so is not subject to this limit.
+    ///
+    /// Because <c>crop</c> does not itself expand a single input frame into
+    /// <paramref name="pieceCount"/> output frames, the source is opened with
+    /// "-loop 1 -r fps" (see <see cref="SourceInputArguments"/>) so it
+    /// already arrives here as a correctly-timed, indefinitely repeating
+    /// stream; crop's own per-frame <c>n</c> variable then plays the same
+    /// role zoompan's "on" does for <see cref="BuildZoomPanFilter"/>. That
     /// input-level duplication is also why any expensive filter upstream of
     /// this one (the supersample scale) needs the separate <see cref="LoopStage"/>
     /// cache-and-replay filter placed just before this call - otherwise it
     /// would be recomputed once per output frame instead of once per segment.
     /// </summary>
-    private static string BuildCropPanFilter(
+    private static string BuildFixedSizeCropFilter(
+        VideoClip clip, long sourceWidth, long scaledWidth, long scaledHeight,
+        long pieceStart, long pieceCount, ProjectOptions options)
+    {
+        var clipDuration = clip.DurationFrames;
+        var steps = clipDuration > 1 ? clipDuration - 1 : 1;
+        var motionSteps = clip.MotionDurationFrames is { } motionEnd && motionEnd > 1
+            ? Math.Max(1, Math.Min(motionEnd - 1, steps))
+            : steps;
+        var supersample = (double)scaledWidth / sourceWidth;
+
+        // Width/height are identical at both ends - that's what routes a clip
+        // to this method instead of BuildZoomPanFilter - so there is exactly
+        // one true value each, computed once, never an "n"-dependent
+        // expression (see this method's doc comment for why that matters).
+        var width = supersample * clip.StartViewport.Width;
+        var height = supersample * clip.StartViewport.Height;
+        var xStart = supersample * clip.StartViewport.X;
+        var xEnd = supersample * clip.EndViewport.X;
+        var yStart = supersample * clip.StartViewport.Y;
+        var yEnd = supersample * clip.EndViewport.Y;
+
+        string xExpression;
+        string yExpression;
+        if (pieceCount <= 1)
+        {
+            var progress = EasingValue(clip.Easing, clipDuration > 1 ? (double)pieceStart / motionSteps : 0.0);
+            xExpression = F(xStart + (xEnd - xStart) * progress);
+            yExpression = F(yStart + (yEnd - yStart) * progress);
+        }
+        else
+        {
+            var rawProgress = $"((n{SignedOffset(pieceStart)})/{motionSteps})";
+            if (motionSteps != steps)
+            {
+                // The move completes after motionSteps frames and the framing holds.
+                rawProgress = $"min(1,{rawProgress})";
+            }
+
+            var progress = EasingExpression(clip.Easing, rawProgress);
+            xExpression = $"min(iw-ow,max(0,{F(xStart)}+({F(xEnd - xStart)})*{progress}))";
+            yExpression = $"min(ih-oh,max(0,{F(yStart)}+({F(yEnd - yStart)})*{progress}))";
+        }
+
+        return $"crop=w='{F(width)}':h='{F(height)}':x='{xExpression}':y='{yExpression}'," +
+               $"scale={options.Render.PreviewWidth}:{options.Render.PreviewHeight}";
+    }
+
+    /// <summary>
+    /// Builds the pan/zoom stage of the side chain for clips whose viewport
+    /// size DOES change between <see cref="VideoClip.StartViewport"/> and
+    /// <see cref="VideoClip.EndViewport"/> (Zoom In/Out, Push In), using
+    /// <c>zoompan</c>. See <see cref="BuildFixedSizeCropFilter"/>'s doc
+    /// comment for the full story: <c>crop</c> cannot animate its own
+    /// width/height per frame (only x/y), because ffmpeg fixes a filter's
+    /// OUTPUT frame size once at configuration time, so it was never a viable
+    /// primitive for these two motion types despite briefly replacing
+    /// zoompan for everything. zoompan's <c>z</c> is a sampling parameter,
+    /// not an output-size parameter - its output stays fixed at <c>s=</c> - so
+    /// it re-evaluates correctly every frame; its known limitation (a single
+    /// zoom value crops both axes by the same ratio, which cannot express an
+    /// independent-axis pan) simply doesn't apply here, since Zoom In/Out and
+    /// Push In are already a symmetric shrink/grow on both axes by
+    /// construction (see MotionEngine.PlanClip's ZoomIn/ZoomOut case).
+    ///
+    /// Unlike <see cref="BuildFixedSizeCropFilter"/>, this does not need
+    /// <see cref="LoopStage"/> before it: zoompan's own <c>d</c> parameter is
+    /// a self-contained "repeat this one input frame this many times before
+    /// asking upstream for another" counter (its "on" variable counts through
+    /// those repeats), so - exactly like the cache LoopStage builds for crop -
+    /// it only ever pulls a single frame through the (potentially expensive)
+    /// upstream supersample scale for the whole segment, with no extra filter
+    /// required to make that happen.
+    /// </summary>
+    private static string BuildZoomPanFilter(
         VideoClip clip, long sourceWidth, long scaledWidth, long scaledHeight,
         long pieceStart, long pieceCount, ProjectOptions options)
     {
@@ -656,33 +784,34 @@ public static class PreviewRenderPlanFactory
 
         var widthStart = supersample * clip.StartViewport.Width;
         var widthEnd = supersample * clip.EndViewport.Width;
-        var heightStart = supersample * clip.StartViewport.Height;
-        var heightEnd = supersample * clip.EndViewport.Height;
-        var xStart = supersample * clip.StartViewport.X;
-        var xEnd = supersample * clip.EndViewport.X;
-        var yStart = supersample * clip.StartViewport.Y;
-        var yEnd = supersample * clip.EndViewport.Y;
+        var centerXStart = supersample * (clip.StartViewport.X + clip.StartViewport.Width / 2.0);
+        var centerXEnd = supersample * (clip.EndViewport.X + clip.EndViewport.Width / 2.0);
+        var centerYStart = supersample * (clip.StartViewport.Y + clip.StartViewport.Height / 2.0);
+        var centerYEnd = supersample * (clip.EndViewport.Y + clip.EndViewport.Height / 2.0);
 
-        string widthExpression;
-        string heightExpression;
+        var zoomHigh = Math.Max(sourceWidth / clip.StartViewport.Width, sourceWidth / clip.EndViewport.Width);
+        var zoomLow = Math.Min(sourceWidth / clip.StartViewport.Width, sourceWidth / clip.EndViewport.Width);
+
+        string zoomExpression;
         string xExpression;
         string yExpression;
         if (pieceCount <= 1)
         {
             var progress = EasingValue(clip.Easing, clipDuration > 1 ? (double)pieceStart / motionSteps : 0.0);
-            var width = widthStart + (widthEnd - widthStart) * progress;
-            var height = heightStart + (heightEnd - heightStart) * progress;
-            var x = xStart + (xEnd - xStart) * progress;
-            var y = yStart + (yEnd - yStart) * progress;
+            var width = clip.StartViewport.Width + (clip.EndViewport.Width - clip.StartViewport.Width) * progress;
+            var centerX = (clip.StartViewport.X + clip.StartViewport.Width / 2.0) +
+                          ((clip.EndViewport.X - clip.StartViewport.X) * progress);
+            var centerY = (clip.StartViewport.Y + clip.StartViewport.Height / 2.0) +
+                          ((clip.EndViewport.Y - clip.StartViewport.Y) * progress);
+            var zoom = sourceWidth / width;
 
-            widthExpression = F(width);
-            heightExpression = F(height);
-            xExpression = F(x);
-            yExpression = F(y);
+            zoomExpression = F(zoom);
+            xExpression = F(supersample * centerX - scaledWidth / zoom / 2.0);
+            yExpression = F(supersample * centerY - scaledHeight / zoom / 2.0);
         }
         else
         {
-            var rawProgress = $"((n{SignedOffset(pieceStart)})/{motionSteps})";
+            var rawProgress = $"((on{SignedOffset(pieceStart)})/{motionSteps})";
             if (motionSteps != steps)
             {
                 // The move completes after motionSteps frames and the framing holds.
@@ -691,22 +820,18 @@ public static class PreviewRenderPlanFactory
 
             var progress = EasingExpression(clip.Easing, rawProgress);
 
-            // Each axis is interpolated on its own - no shared zoom value, so
-            // width/height and x/y never have to fight each other's aspect ratio.
-            widthExpression = $"min(iw,max(1,{F(widthStart)}+({F(widthEnd - widthStart)})*{progress}))";
-            heightExpression = $"min(ih,max(1,{F(heightStart)}+({F(heightEnd - heightStart)})*{progress}))";
-            xExpression = $"min(iw-ow,max(0,{F(xStart)}+({F(xEnd - xStart)})*{progress}))";
-            yExpression = $"min(ih-oh,max(0,{F(yStart)}+({F(yEnd - yStart)})*{progress}))";
+            zoomExpression =
+                $"min({F(zoomHigh)},max({F(zoomLow)},{F(scaledWidth)}/({F(widthStart)}+({F(widthEnd - widthStart)})*{progress})))";
+            xExpression =
+                $"min(max(0,({F(centerXStart)}+({F(centerXEnd - centerXStart)})*{progress})-iw/zoom/2),iw-iw/zoom)";
+            yExpression =
+                $"min(max(0,({F(centerYStart)}+({F(centerYEnd - centerYStart)})*{progress})-ih/zoom/2),ih-ih/zoom)";
         }
 
-        // The input is opened with "-loop 1 -r <fps>" (see BuildSegmentArguments/
-        // BuildJoinArguments), so it already arrives here as an infinite stream
-        // of the source frame, correctly spaced at the project's frame rate;
-        // "n" below is simply that stream's own frame counter. That replaces
-        // zoompan's self-contained per-input-frame duplication (its ":d="),
-        // which crop has no equivalent for on its own.
-        return $"crop=w='{widthExpression}':h='{heightExpression}':x='{xExpression}':y='{yExpression}'," +
-               $"scale={options.Render.PreviewWidth}:{options.Render.PreviewHeight}";
+        return $"zoompan=z='{zoomExpression}':x='{xExpression}':y='{yExpression}'" +
+               $":d={pieceCount.ToString(CultureInfo.InvariantCulture)}" +
+               $":s={options.Render.PreviewWidth}x{options.Render.PreviewHeight}" +
+               $":fps={F(options.Output.Fps)}";
     }
 
     private static string EasingExpression(EasingMode easing, string progress)
