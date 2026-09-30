@@ -279,7 +279,8 @@ if (command == "export-capcut")
 }
 
 var progress = new Progress<double>(p => Console.Write($"\rrender {p,5:P1}   "));
-var service = new PreviewRenderService(new FfmpegRunner(options.Render.FfmpegPath));
+var service = new PreviewRenderService(
+    new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(options.Render)));
 RenderResult result;
 if (preview)
 {

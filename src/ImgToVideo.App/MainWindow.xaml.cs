@@ -178,7 +178,8 @@ public partial class MainWindow : Window
 
             _renderCts = new CancellationTokenSource();
             var progress = new Progress<double>(p => PbRender.Value = p * 100);
-            var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
+            var service = new PreviewRenderService(
+                new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render)));
             var result = await service.RenderAsync(
                 plan, maxParallelism: 2, progress, _renderCts.Token, reuseUnchangedSegments: true);
 
@@ -226,7 +227,8 @@ public partial class MainWindow : Window
 
             _renderCts = new CancellationTokenSource();
             var progress = new Progress<double>(p => PbRender.Value = p * 100);
-            var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
+            var service = new PreviewRenderService(
+                new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render)));
             var result = await service.RenderAsync(
                 plan, maxParallelism: 2, progress, _renderCts.Token, reuseUnchangedSegments: true);
 
@@ -315,6 +317,36 @@ public partial class MainWindow : Window
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
+        // Settings must start from what's actually saved on disk, not
+        // whatever in-memory ProjectOptions this window happens to be
+        // holding right now. _options stays at bare defaults until ANALYZE
+        // has been clicked at least once in this run, so opening Settings
+        // before that (a very easy thing to do right after browsing to a
+        // project) used to mean its Save button would silently overwrite the
+        // project's real config with those defaults - wiping out anything set
+        // outside the dialog, such as a hand-edited render.ffmpeg_path, or
+        // any field the dialog itself doesn't expose. Reloading here, right
+        // before the dialog is built, closes that gap regardless of whether
+        // the person remembered to Analyze first.
+        if (_projectFolder.Length > 0 && Directory.Exists(_projectFolder))
+        {
+            var optionsPath = Path.Combine(_projectFolder, "imgtovideo.json");
+            if (File.Exists(optionsPath))
+            {
+                try
+                {
+                    _options = OptionsJson.LoadOrDefault(optionsPath);
+                }
+                catch (IOException)
+                {
+                    // Keep whatever _options already held — better than losing it.
+                }
+                catch (InvalidDataException)
+                {
+                }
+            }
+        }
+
         ApplyOptionControls();
         var dialog = new SettingsWindow(_options, _projectFolder) { Owner = this };
         if (dialog.ShowDialog() == true)

@@ -396,6 +396,10 @@ public static class PreviewRenderPlanFactory
     /// <summary>
     /// Resolves the configured encoder to a concrete ffmpeg encoder name, falling
     /// back to CPU libx264 when a hardware encoder is requested but unavailable.
+    /// Checks against <see cref="ResolveEffectiveFfmpegPath"/>, not the raw
+    /// configured path, so this always matches whichever ffmpeg binary the
+    /// render will actually run (auto mode may pick a different one than
+    /// render.FfmpegPath names - see that method).
     /// </summary>
     public static string ResolveEncoder(RenderOptions render)
     {
@@ -413,6 +417,7 @@ public static class PreviewRenderPlanFactory
             _ => (IReadOnlyList<string>)["h264_nvenc", "h264_amf", "h264_qsv"],
         };
 
+        var ffmpegPath = ResolveEffectiveFfmpegPath(render);
         foreach (var candidate in candidates)
         {
             // EncoderProbe.Supports does more than check that ffmpeg was built
@@ -422,7 +427,7 @@ public static class PreviewRenderPlanFactory
             // nvenc API version this ffmpeg build expects). Selecting on that
             // instead of mere presence keeps a render from picking an encoder
             // that is only going to fail once real segments start encoding.
-            if (EncoderProbe.Supports(render.FfmpegPath, candidate))
+            if (EncoderProbe.Supports(ffmpegPath, candidate))
             {
                 return candidate;
             }
@@ -430,6 +435,60 @@ public static class PreviewRenderPlanFactory
 
         return "libx264";
     }
+
+    /// <summary>
+    /// The ffmpeg binary a render should actually run, which is not always
+    /// simply <see cref="RenderOptions.FfmpegPath"/> resolved through
+    /// <see cref="ToolLocator.Resolve"/>.
+    ///
+    /// Hardware encoding should not depend on a manually-set ffmpeg_path
+    /// surviving in the project's config: that field is easy to lose (e.g. it
+    /// gets silently reset if Settings is opened and saved before the project
+    /// has been analyzed at least once, since the Settings dialog only knows
+    /// about whatever ProjectOptions the app already has in memory) and a
+    /// user has no reason to expect editing an unrelated setting to quietly
+    /// turn off GPU rendering. So in "auto" encoder mode, if the configured
+    /// ffmpeg can't actually deliver a working hardware encoder - e.g. its
+    /// NVENC build expects a newer driver API version than the installed
+    /// Nvidia driver provides - every other ffmpeg.exe this machine's normal
+    /// search locations turn up (see <see cref="ToolLocator.ResolveAllCandidates"/>,
+    /// which includes common portable-tool locations such as an alternate
+    /// build kept under C:\Tools) is checked in turn, and the first one that
+    /// does support a hardware encoder is used instead - automatically, every
+    /// render, independent of whatever render.FfmpegPath happens to say.
+    ///
+    /// An explicit encoder choice (a user who deliberately typed
+    /// "h264_nvenc", or "libx264"/"cpu" to force CPU) is never second-guessed
+    /// this way: only "auto" (or blank) triggers the search, and the
+    /// configured ffmpeg is always used for that.
+    /// </summary>
+    public static string ResolveEffectiveFfmpegPath(RenderOptions render)
+    {
+        var configuredPath = ToolLocator.Resolve("ffmpeg", render.FfmpegPath);
+
+        var encoder = (render.Encoder ?? "auto").Trim();
+        var isAuto = encoder.Length == 0 || encoder.Equals("auto", StringComparison.OrdinalIgnoreCase);
+        if (!isAuto || HasWorkingHardwareEncoder(configuredPath))
+        {
+            return configuredPath;
+        }
+
+        foreach (var candidate in ToolLocator.ResolveAllCandidates("ffmpeg", render.FfmpegPath))
+        {
+            if (!string.Equals(candidate, configuredPath, StringComparison.OrdinalIgnoreCase) &&
+                HasWorkingHardwareEncoder(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return configuredPath;
+    }
+
+    private static bool HasWorkingHardwareEncoder(string ffmpegPath) =>
+        EncoderProbe.Supports(ffmpegPath, "h264_nvenc") ||
+        EncoderProbe.Supports(ffmpegPath, "h264_amf") ||
+        EncoderProbe.Supports(ffmpegPath, "h264_qsv");
 
     /// <summary>Pure mapping of encoder + libx264-style preset/CRF onto encoder arguments.</summary>
     public static IReadOnlyList<string> VideoEncoderArgs(string encoder, string preset, int crf,
