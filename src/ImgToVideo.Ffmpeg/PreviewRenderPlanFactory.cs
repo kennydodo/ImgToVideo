@@ -413,10 +413,16 @@ public static class PreviewRenderPlanFactory
             _ => (IReadOnlyList<string>)["h264_nvenc", "h264_amf", "h264_qsv"],
         };
 
-        var available = EncoderProbe.GetEncoders(render.FfmpegPath);
         foreach (var candidate in candidates)
         {
-            if (available.Contains(candidate))
+            // EncoderProbe.Supports does more than check that ffmpeg was built
+            // with this encoder - it verifies the encoder actually initializes
+            // on this machine right now, which a compiled-in hardware encoder
+            // can still fail to do (e.g. an Nvidia driver too old for the
+            // nvenc API version this ffmpeg build expects). Selecting on that
+            // instead of mere presence keeps a render from picking an encoder
+            // that is only going to fail once real segments start encoding.
+            if (EncoderProbe.Supports(render.FfmpegPath, candidate))
             {
                 return candidate;
             }

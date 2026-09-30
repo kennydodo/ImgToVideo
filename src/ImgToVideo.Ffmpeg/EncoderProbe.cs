@@ -6,10 +6,64 @@ namespace ImgToVideo.Ffmpeg;
 public static class EncoderProbe
 {
     private static readonly ConcurrentDictionary<string, Lazy<IReadOnlySet<string>>> Cache = new();
+    private static readonly ConcurrentDictionary<(string FfmpegPath, string Encoder), Lazy<bool>> VerifyCache = new();
 
     public static IReadOnlySet<string> GetEncoders(string ffmpegPath)
     {
         return Cache.GetOrAdd(ffmpegPath, path => new Lazy<IReadOnlySet<string>>(() => Load(path))).Value;
+    }
+
+    /// <summary>
+    /// True if <paramref name="encoder"/> is not just compiled into this ffmpeg
+    /// build but can actually initialize on this machine right now.
+    /// "ffmpeg -encoders" (see <see cref="GetEncoders"/>) only reports what the
+    /// binary was built with - a hardware encoder listed there can still fail
+    /// to open at runtime, e.g. NVENC refusing to initialize with "Driver does
+    /// not support the required nvenc API version" when the installed Nvidia
+    /// driver is older than the one ffmpeg was built against. Encoding one
+    /// throwaway frame catches that up front, during encoder selection,
+    /// instead of letting it fail an actual render segment partway through.
+    /// Cached per (ffmpegPath, encoder) so the extra process launch only
+    /// happens once per candidate per run.
+    /// </summary>
+    public static bool Supports(string ffmpegPath, string encoder)
+    {
+        if (!GetEncoders(ffmpegPath).Contains(encoder))
+        {
+            return false;
+        }
+
+        return VerifyCache.GetOrAdd(
+            (ffmpegPath, encoder),
+            key => new Lazy<bool>(() => Verify(key.FfmpegPath, key.Encoder))).Value;
+    }
+
+    private static bool Verify(string ffmpegPath, string encoder)
+    {
+        try
+        {
+            var result = new FfmpegRunner(ffmpegPath)
+                .RunAsync([
+                    "-hide_banner",
+                    "-f", "lavfi",
+                    "-i", "color=black:s=64x64:d=0.1",
+                    "-frames:v", "1",
+                    "-c:v", encoder,
+                    "-f", "null",
+                    "-",
+                ])
+                .GetAwaiter()
+                .GetResult();
+            return result.Success;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (AggregateException)
+        {
+            return false;
+        }
     }
 
     private static IReadOnlySet<string> Load(string ffmpegPath)
