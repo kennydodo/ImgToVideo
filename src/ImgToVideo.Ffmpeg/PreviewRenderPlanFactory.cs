@@ -490,6 +490,27 @@ public static class PreviewRenderPlanFactory
         EncoderProbe.Supports(ffmpegPath, "h264_amf") ||
         EncoderProbe.Supports(ffmpegPath, "h264_qsv");
 
+    /// <summary>
+    /// One-line summary of what a render with these options will actually use -
+    /// "h264_nvenc via C:\path\to\ffmpeg.exe" or similar. Whether the resolved
+    /// encoder ends up CPU (libx264) is normally invisible until someone
+    /// happens to check Task Manager mid-render; surfacing it directly in the
+    /// UI after each build removes the guesswork around whether "still uses
+    /// CPU" means the encoder pick failed, or simply that the render's CPU
+    /// cost is dominated by something encoding can't speed up (heavy filter
+    /// work - e.g. a large supersample_target_width - runs on the CPU
+    /// regardless of which encoder finishes the segment).
+    /// </summary>
+    public static string DescribeEffectiveEncoder(RenderOptions render)
+    {
+        var encoder =
+            string.IsNullOrWhiteSpace(render.Encoder) ||
+            render.Encoder.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase)
+                ? ResolveEncoder(render)
+                : render.Encoder;
+        return $"{encoder} via {ResolveEffectiveFfmpegPath(render)}";
+    }
+
     /// <summary>Pure mapping of encoder + libx264-style preset/CRF onto encoder arguments.</summary>
     public static IReadOnlyList<string> VideoEncoderArgs(string encoder, string preset, int crf,
                                                          int bframes = 3)
