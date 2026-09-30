@@ -116,6 +116,84 @@ shotlist v2 gains reference images for character/location continuity
   FINANCE "These 10 Things…": 85/85 missing cards written; LLM had
   self-regulated to style 1499/1500 chars, longest prompt 677/2400.
 
+## 2026-09-24 — brief change QUEUED: reference naming convention + per-ref generation prompts
+
+WhisperRadar now consumes shotlist refs in two ways that the brief does not yet
+support: it **enforces a naming convention** on registry names, and it **generates
+the refs whose file is missing** before running the image batch (so the batch can
+attach them by name with `refMode: "assets"` and upload nothing). Both need the
+brief to change. Docs only so far — nothing implemented here yet.
+
+**The rule, per ref (agreed with Kehinde 2026-09-24):**
+
+| Registry entry | What happens |
+| --- | --- |
+| path supplied and the file exists | **use it** — upload to the project gallery (FlowImagesGen `prepare` reports `uploaded`, or `reused` if already there) |
+| path supplied but the file is missing on disk | treat as **no path** |
+| no path at all | **generate it on the go** from its prompt |
+| already in the Flow project gallery under that name | `reused` — nothing uploaded or generated |
+
+The generation set is exactly what FlowImagesGen's `prepare` already reports as
+`missing`, so no new signal is needed on that side.
+
+**Naming convention (new, hard requirement):**
+
+- `CH_` character · `BG_` background/environment · `OBJ_` object, then uppercase
+  ASCII, `_` separators, zero-padded 2-digit variants:
+  `^(CH|BG|OBJ)_[A-Z0-9]+(_[0-9]{2})?$` — e.g. `CH_MAYA`, `BG_BATHROOM_01`,
+  `OBJ_ALARM_CLOCK_02`.
+- **Mapping from the bible** (the bible stays human-readable): `CH_` + the bible
+  name uppercased with every non-alphanumeric run replaced by `_`. "Maya" →
+  `CH_MAYA`; "traditional Japanese home" → `BG_TRADITIONAL_JAPANESE_HOME`;
+  a second bathroom plate → `BG_BATHROOM_02`.
+- Why it matters: the name IS the asset identity in the Flow project. A generated
+  ref has to be uploaded under the registry name, or the batch cannot attach it by
+  name — and Flow's own asset names are auto-generated, so they never match.
+
+**Schema — keep the registry as `name → path` and add a sibling map.** Do NOT
+turn the value into `{path, prompt}`: `src/jobs/load.js` `buildRefMap()` does
+`String(value)` and treats it as a path, so an object value silently degrades to
+"attach by name" with a `local file not found` warning.
+
+```json
+"refs": {
+  "CH_MAYA":        "D:/Refs/maya.png",     // provided -> used
+  "BG_BATHROOM_01": null                   // no file -> generated from refPrompts
+},
+"refPrompts": {
+  "BG_BATHROOM_01": "small Japanese bathroom, pale wood, shoji light, ..."
+}
+```
+
+`refPrompts` is only read when a ref has no usable path; a ref with a supplied
+file needs no prompt (the field may still carry one, unused).
+
+**Files to change:**
+
+1. `docs/manifest-authoring-brief.md` §6 (~line 88) — replace "names exactly as
+   the bible gives them" with the convention + mapping above, and state the
+   path/no-path rule. §7 shape (~lines 106-116) — registry example in the new
+   names plus the `refPrompts` map; refs bullet (~line 128) and sheet line
+   (~147) and checklist item 8 (~181) — same wording, and require a prompt for
+   every ref that has no supplied path.
+2. `docs/manifest-spec.md` (~130-134 schema, ~146 validation) — document the
+   convention and `refPrompts`; keep the "names only, no disk access" validation
+   split.
+3. `src/jobs/load.js` — add `refPrompts` to `KNOWN_TOP_LEVEL` (~line 16) so it is
+   not reported as an unrecognised key, and treat a null/empty registry value as
+   "no local file — expected to be generated" instead of warning
+   `local file not found at "null"`.
+4. This file.
+
+**Coordination:** WhisperRadar's shots gate ALREADY enforces the convention
+(`studio.REF_NAME_RE`), so **until this brief change lands, any shotlist carrying
+refs fails that gate** — production #6's `hero_kimono_woman` /
+`traditional_japanese_home` would be rejected on a re-run. Its
+`declared_refs()`/`ref_name()` already tolerate string or object registry values,
+so the schema above needs no change on that side. WhisperRadar builds the small
+`generate` job for the `missing` refs from `refPrompts`, then runs the real batch
+in `refMode: "assets"`.
+
 ## 2026-09-19 — START HERE (completed same morning — see section above): fix the image-batch delta (22 → 8)
 
 **State**: TestWhisperRader has the NEW 81-image/81-shot shotlist (the 8 SHOT_HOLD_LONG
