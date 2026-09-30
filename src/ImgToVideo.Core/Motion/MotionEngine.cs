@@ -191,15 +191,36 @@ public sealed class MotionEngine
                 var x = (imageWidth - fitWidth) / 2.0;
                 double startY;
                 double endY;
-                if (motion == MotionType.PanUp)
+                if (source == MotionSource.ExplicitCode)
                 {
-                    startY = spareY;
-                    endY = 0;
+                    startY = motion == MotionType.PanUp ? spareY : 0;
+                    endY = motion == MotionType.PanUp ? 0 : spareY;
                 }
                 else
                 {
-                    startY = 0;
-                    endY = spareY;
+                    // Mirrors the Pan Left/Right branch just above: without this,
+                    // Pan Up/Down always travelled the FULL vertical overscan
+                    // (spareY can be very large - images meant for vertical
+                    // panning are deliberately generated with a lot of headroom,
+                    // e.g. a 200%-tall 2304x2160 source), while Pan Left/Right's
+                    // non-explicit case has always been capped to a gentle
+                    // PanMaxTravelPercent of the frame. The same easing curve
+                    // applied over a much larger uncapped distance in the same
+                    // clip duration reaches a much higher peak speed, which is
+                    // what made Pan Up/Down feel abrupt/uneven next to Pan
+                    // Left/Right even though both use the exact same easing math.
+                    var capped = Math.Min(_motion.PanMaxTravelPercent / 100.0 * _output.Height, spareY);
+                    var center = spareY / 2.0;
+                    if (motion == MotionType.PanUp)
+                    {
+                        startY = center + capped / 2.0;
+                        endY = center - capped / 2.0;
+                    }
+                    else
+                    {
+                        startY = center - capped / 2.0;
+                        endY = center + capped / 2.0;
+                    }
                 }
 
                 return new ClipMotionPlan(

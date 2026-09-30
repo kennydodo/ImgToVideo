@@ -178,12 +178,17 @@ public partial class MainWindow : Window
 
             _renderCts = new CancellationTokenSource();
             var progress = new Progress<double>(p => PbRender.Value = p * 100);
-            var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
+            var service = new PreviewRenderService(
+                new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render)));
             var result = await service.RenderAsync(
                 plan, maxParallelism: 2, progress, _renderCts.Token, reuseUnchangedSegments: true);
 
+            // Surfaced so "still feels like CPU" can be checked against what the
+            // render actually picked instead of guessed at from Task Manager -
+            // see DescribeEffectiveEncoder's own doc comment.
+            var encoderNote = PreviewRenderPlanFactory.DescribeEffectiveEncoder(_options.Render);
             ShowStatus(result.Success
-                ? $"Preview ready: {previewPath}"
+                ? $"Preview ready: {previewPath} (encoder: {encoderNote})"
                 : "Render failed: " + string.Join(" | ", result.Errors),
                 result.Success ? StatusKind.Success : StatusKind.Error);
         }
@@ -220,13 +225,22 @@ public partial class MainWindow : Window
             var renderDirectory = Path.Combine(finalDirectory, "render");
             var finalPath = Path.Combine(finalDirectory, "final.mp4");
 
+            var finalOptions = FinalRenderOptions(_options);
             var plan = PreviewRenderPlanFactory.Build(
-                _planned!.Timeline!, _inventory.AllImages, FinalRenderOptions(_options),
+                _planned!.Timeline!, _inventory.AllImages, finalOptions,
                 renderDirectory, finalPath);
 
             _renderCts = new CancellationTokenSource();
             var progress = new Progress<double>(p => PbRender.Value = p * 100);
-            var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
+            // Uses finalOptions.Render (not _options.Render) so the ffmpeg binary
+            // that actually runs is resolved from the exact same RenderOptions
+            // PreviewRenderPlanFactory.Build just used to pick the encoder for
+            // this plan's segments - they happen to agree today since
+            // FinalRenderOptions only overrides preview-preset fields, but
+            // resolving from the options that were actually planned against, not
+            // a separate copy, is what keeps that true if that ever changes.
+            var service = new PreviewRenderService(
+                new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(finalOptions.Render)));
             var result = await service.RenderAsync(
                 plan, maxParallelism: 2, progress, _renderCts.Token, reuseUnchangedSegments: true);
 
@@ -244,9 +258,10 @@ public partial class MainWindow : Window
                 File.Copy(captionsSource, captionsPath, overwrite: true);
             }
 
+            var encoderNote = PreviewRenderPlanFactory.DescribeEffectiveEncoder(finalOptions.Render);
             ShowStatus(
                 "Final render ready: " + finalPath + (hasCaptions ? " + captions.srt" : "") +
-                " — drop both into CapCut (CapCut tier 1).",
+                $" — drop both into CapCut (CapCut tier 1). (encoder: {encoderNote})",
                 StatusKind.Success);
         }
         catch (OperationCanceledException)
@@ -315,12 +330,56 @@ public partial class MainWindow : Window
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
+        // Settings must start from what's actually saved on disk, not
+        // whatever in-memory ProjectOptions this window happens to be
+        // holding right now. _options stays at bare defaults until ANALYZE
+        // has been clicked at least once in this run, so opening Settings
+        // before that (a very easy thing to do right after browsing to a
+        // project) used to mean its Save button would silently overwrite the
+        // project's real config with those defaults - wiping out anything set
+        // outside the dialog, such as a hand-edited render.ffmpeg_path, or
+        // any field the dialog itself doesn't expose. Reloading here, right
+        // before the dialog is built, closes that gap regardless of whether
+        // the person remembered to Analyze first.
+        if (_projectFolder.Length > 0 && Directory.Exists(_projectFolder))
+        {
+            var optionsPath = Path.Combine(_projectFolder, "imgtovideo.json");
+            if (File.Exists(optionsPath))
+            {
+                try
+                {
+                    _options = OptionsJson.LoadOrDefault(optionsPath);
+                }
+                catch (IOException)
+                {
+                    // Keep whatever _options already held — better than losing it.
+                }
+                catch (InvalidDataException)
+                {
+                }
+            }
+        }
+
         ApplyOptionControls();
         var dialog = new SettingsWindow(_options, _projectFolder) { Owner = this };
         if (dialog.ShowDialog() == true)
         {
             _options = dialog.Options;
             SyncOptionControls();
+
+            // PlanIfNeededAsync (used by BUILD PREVIEW/RENDER FINAL/EXPORT) only
+            // ever re-runs EditPlanner.Plan when _planned is null - it's a "plan
+            // once per project load" cache, not a "plan once per settings" cache.
+            // Motion, easing, transitions, pan/zoom percents, and every other
+            // planning-affecting option live inside _planned.Timeline (baked in
+            // as each clip's StartViewport/EndViewport/Easing/etc. at plan time),
+            // so without this, saving new Settings here had no visible effect on
+            // the next render at all: it silently kept using whichever plan was
+            // computed from the options in effect the last time Analyze or a
+            // scene-editor save ran, however different the just-saved settings
+            // are. Clearing it forces the very next Build/Final/Export to replan
+            // from the options just saved, exactly like re-running Analyze would.
+            _planned = null;
             ShowStatus("Settings saved.", StatusKind.Success);
         }
     }

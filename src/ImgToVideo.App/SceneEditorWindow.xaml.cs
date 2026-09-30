@@ -888,7 +888,8 @@ public partial class SceneEditorWindow : Window
             plan = plan with { MuxArguments = ["-hide_banner", "-version"] };
         }
 
-        var service = new PreviewRenderService(new FfmpegRunner(_options.Render.FfmpegPath));
+        var service = new PreviewRenderService(
+            new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render)));
         var result = await service.RenderAsync(plan, maxParallelism: 2, progress);
         if (result.Success)
         {
@@ -916,7 +917,7 @@ public partial class SceneEditorWindow : Window
         VideoClip previewClip, ImageInfo image, string videoPath, string renderPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(renderPath)!);
-        var runner = new FfmpegRunner(_options.Render.FfmpegPath);
+        var runner = new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render));
         var video = await runner.RunAsync(PreviewRenderPlanFactory.BuildClipPreviewArguments(
             previewClip, image.Width, image.Height, _options, renderPath));
         if (!video.Success)

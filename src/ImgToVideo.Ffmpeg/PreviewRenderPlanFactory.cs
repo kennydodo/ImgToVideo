@@ -7,15 +7,15 @@ namespace ImgToVideo.Ffmpeg;
 
 public static class PreviewRenderPlanFactory
 {
-    /// <summary>Supersample factor cap: the zoompan input memory and CPU cost
+    /// <summary>Supersample factor cap: the crop/pan input memory and CPU cost
     /// scale with the square of the factor.</summary>
     private const long SupersampleMaxFactor = 8;
 
-    /// <summary>The zoompan input grid is never stretched beyond this width,
+    /// <summary>The crop/pan input grid is never stretched beyond this width,
     /// so memory and CPU stay bounded for huge sources.</summary>
     private const long SupersampleMaxGridWidth = 16384;
 
-    /// <summary>The zoompan grid is kept at least this multiple of the render
+    /// <summary>The pan/zoom grid is kept at least this multiple of the render
     /// width: the crop rounding is only invisible when the grid is a large
     /// multiple of the size the viewer actually sees.</summary>
     private const double PreviewToGridRatio = 4.8;
@@ -195,11 +195,23 @@ public static class PreviewRenderPlanFactory
         }
 
         return WrapSegmentArguments(
-            new[] { "-i", clip.FilePath },
+            SourceInputArguments(clip.FilePath, options),
             null,
             BuildSideChain(clip, sourceWidth, sourceHeight, pieceStart, pieceCount, options),
             pieceCount, options.Render, outputPath);
     }
+
+    /// <summary>
+    /// Opens a still-image source clip as an infinite, correctly-timed stream:
+    /// "-loop 1" repeats the single decoded frame indefinitely and "-r" stamps
+    /// it at the project's frame rate, so downstream filters (crop, in
+    /// particular - see BuildFixedSizeCropFilter) see a plain sequential frame
+    /// stream at the right pace, without needing their own frame-duplication
+    /// or retiming logic. Trimmed to exactly the frames each segment needs by
+    /// the "-frames:v" already applied in WrapSegmentArguments.
+    /// </summary>
+    private static IReadOnlyList<string> SourceInputArguments(string filePath, ProjectOptions options) =>
+        new[] { "-loop", "1", "-r", F(options.Output.Fps), "-i", filePath };
 
     private static IReadOnlyList<string> BuildJoinArguments(
         VideoClip outgoing, int outgoingWidth, int outgoingHeight,
@@ -222,15 +234,17 @@ public static class PreviewRenderPlanFactory
             "format=yuv420p";
 
         return WrapSegmentArguments(
-            new[] { "-i", outgoing.FilePath, "-i", incoming.FilePath },
+            SourceInputArguments(outgoing.FilePath, options)
+                .Concat(SourceInputArguments(incoming.FilePath, options))
+                .ToList(),
             filterComplex,
             null,
             transitionFrames, options.Render, outputPath);
     }
 
     /// <summary>
-    /// Supersample factor so the zoompan input grid reaches roughly
-    /// <paramref name="targetWidth"/>. zoompan rounds the crop to whole input
+    /// Supersample factor so the crop/pan input grid reaches roughly
+    /// <paramref name="targetWidth"/>. crop rounds its window to whole input
     /// pixels, so a slow pan/zoom moves in (out_w / grid) pixel steps - and the
     /// player stretches the file to the screen, so the on-screen wobble is
     /// screenWidth / grid regardless of the file resolution. The old fixed 2x
@@ -259,7 +273,7 @@ public static class PreviewRenderPlanFactory
     }
 
     /// <summary>
-    /// Effective zoompan grid target for the current render: the configured
+    /// Effective crop/pan grid target for the current render: the configured
     /// absolute width, but never below ~4.8x the render width. A target tuned
     /// at one render size (4608 for the 960 preview) leaves larger renders -
     /// e.g. the 2560-wide final - on a grid too coarse for smooth motion.
@@ -292,6 +306,7 @@ public static class PreviewRenderPlanFactory
 
         var viewportsInsideImage =
             clip.StartViewport.IsInside(imageBounds) && clip.EndViewport.IsInside(imageBounds);
+        var sizeChanges = ViewportSizeChanges(clip);
 
         if (viewportsInsideImage)
         {
@@ -301,9 +316,19 @@ public static class PreviewRenderPlanFactory
             var chain = supersample > 1
                 ? $"scale={scaledWidth}:{scaledHeight}:flags=lanczos,"
                 : string.Empty;
-            return chain + BuildZoompanFilter(
-                clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
-                ",format=yuv420p";
+
+            // See ViewportSizeChanges: zoompan pulls exactly one upstream frame
+            // per segment on its own (its "d" is a self-contained repeat count,
+            // not a real per-frame stream request), so - unlike the crop path -
+            // it needs no LoopStage to keep the supersample scale from being
+            // recomputed per output frame.
+            return sizeChanges
+                ? chain + BuildZoomPanFilter(
+                    clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
+                    ",format=yuv420p"
+                : chain + LoopStage(pieceCount) + BuildFixedSizeCropFilter(
+                    clip, sourceWidth, scaledWidth, scaledHeight, pieceStart, pieceCount, options) +
+                    ",format=yuv420p";
         }
 
         var canvasWidth = Even(Math.Max(
@@ -315,13 +340,30 @@ public static class PreviewRenderPlanFactory
         var scaledCanvasHeight = canvasHeight * supersampleFactor;
         var scaledImageWidth = sourceWidth * supersampleFactor;
         var scaledImageHeight = sourceHeight * supersampleFactor;
+        var padChain = $"scale={scaledImageWidth}:{scaledImageHeight}:flags=lanczos," +
+               $"pad={scaledCanvasWidth}:{scaledCanvasHeight}:(ow-iw)/2:(oh-ih)/2,";
 
-        return $"scale={scaledImageWidth}:{scaledImageHeight}:flags=lanczos," +
-               $"pad={scaledCanvasWidth}:{scaledCanvasHeight}:(ow-iw)/2:(oh-ih)/2," +
-               BuildZoompanFilter(
-                   clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
-               ",format=yuv420p";
+        return sizeChanges
+            ? padChain + BuildZoomPanFilter(
+                clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
+                ",format=yuv420p"
+            : padChain + LoopStage(pieceCount) + BuildFixedSizeCropFilter(
+                clip, canvasWidth, scaledCanvasWidth, scaledCanvasHeight, pieceStart, pieceCount, options) +
+                ",format=yuv420p";
     }
+
+    /// <summary>
+    /// True when a clip's viewport width or height actually differs between
+    /// <see cref="VideoClip.StartViewport"/> and <see cref="VideoClip.EndViewport"/>
+    /// (Zoom In/Out, Push In) as opposed to staying fixed while only position
+    /// moves (Pan Left/Right/Up/Down, Static). This decides which filter
+    /// <see cref="BuildSideChain"/> uses - see <see cref="BuildFixedSizeCropFilter"/>
+    /// and <see cref="BuildZoomPanFilter"/> for why the two cases cannot share
+    /// one implementation.
+    /// </summary>
+    private static bool ViewportSizeChanges(VideoClip clip) =>
+        Math.Abs(clip.StartViewport.Width - clip.EndViewport.Width) > 0.01 ||
+        Math.Abs(clip.StartViewport.Height - clip.EndViewport.Height) > 0.01;
 
     private static long Even(double value) =>
         (long)Math.Round(value / 2, MidpointRounding.AwayFromZero) * 2;
@@ -357,7 +399,21 @@ public static class PreviewRenderPlanFactory
 
         args.Add("-frames:v");
         args.Add(frameCount.ToString(CultureInfo.InvariantCulture));
-        args.AddRange(VideoEncoderArgs(render.Encoder, render.PreviewPreset,
+        // render.Encoder is "auto" by default - ResolveEncoder is what actually
+        // probes ffmpeg for an available hardware encoder (NVENC/AMF/QSV) and
+        // falls back to libx264. Passing render.Encoder straight through here
+        // used to skip that probe entirely: VideoEncoderArgs' switch doesn't
+        // recognize "auto" and silently fell to its libx264 default, so every
+        // render ran on the CPU even on a machine with a capable GPU. An
+        // already-explicit encoder (e.g. a user who typed "h264_nvenc" into
+        // Settings) is passed straight through as before - only "auto" goes
+        // through the probe.
+        var resolvedEncoder =
+            string.IsNullOrWhiteSpace(render.Encoder) ||
+            render.Encoder.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase)
+                ? ResolveEncoder(render)
+                : render.Encoder;
+        args.AddRange(VideoEncoderArgs(resolvedEncoder, render.PreviewPreset,
                                        render.PreviewCrf, render.PreviewBframes));
         args.Add("-an");
         args.Add(outputPath);
@@ -367,6 +423,10 @@ public static class PreviewRenderPlanFactory
     /// <summary>
     /// Resolves the configured encoder to a concrete ffmpeg encoder name, falling
     /// back to CPU libx264 when a hardware encoder is requested but unavailable.
+    /// Checks against <see cref="ResolveEffectiveFfmpegPath"/>, not the raw
+    /// configured path, so this always matches whichever ffmpeg binary the
+    /// render will actually run (auto mode may pick a different one than
+    /// render.FfmpegPath names - see that method).
     /// </summary>
     public static string ResolveEncoder(RenderOptions render)
     {
@@ -384,16 +444,98 @@ public static class PreviewRenderPlanFactory
             _ => (IReadOnlyList<string>)["h264_nvenc", "h264_amf", "h264_qsv"],
         };
 
-        var available = EncoderProbe.GetEncoders(render.FfmpegPath);
+        var ffmpegPath = ResolveEffectiveFfmpegPath(render);
         foreach (var candidate in candidates)
         {
-            if (available.Contains(candidate))
+            // EncoderProbe.Supports does more than check that ffmpeg was built
+            // with this encoder - it verifies the encoder actually initializes
+            // on this machine right now, which a compiled-in hardware encoder
+            // can still fail to do (e.g. an Nvidia driver too old for the
+            // nvenc API version this ffmpeg build expects). Selecting on that
+            // instead of mere presence keeps a render from picking an encoder
+            // that is only going to fail once real segments start encoding.
+            if (EncoderProbe.Supports(ffmpegPath, candidate))
             {
                 return candidate;
             }
         }
 
         return "libx264";
+    }
+
+    /// <summary>
+    /// The ffmpeg binary a render should actually run, which is not always
+    /// simply <see cref="RenderOptions.FfmpegPath"/> resolved through
+    /// <see cref="ToolLocator.Resolve"/>.
+    ///
+    /// Hardware encoding should not depend on a manually-set ffmpeg_path
+    /// surviving in the project's config: that field is easy to lose (e.g. it
+    /// gets silently reset if Settings is opened and saved before the project
+    /// has been analyzed at least once, since the Settings dialog only knows
+    /// about whatever ProjectOptions the app already has in memory) and a
+    /// user has no reason to expect editing an unrelated setting to quietly
+    /// turn off GPU rendering. So in "auto" encoder mode, if the configured
+    /// ffmpeg can't actually deliver a working hardware encoder - e.g. its
+    /// NVENC build expects a newer driver API version than the installed
+    /// Nvidia driver provides - every other ffmpeg.exe this machine's normal
+    /// search locations turn up (see <see cref="ToolLocator.ResolveAllCandidates"/>,
+    /// which includes common portable-tool locations such as an alternate
+    /// build kept under C:\Tools) is checked in turn, and the first one that
+    /// does support a hardware encoder is used instead - automatically, every
+    /// render, independent of whatever render.FfmpegPath happens to say.
+    ///
+    /// An explicit encoder choice (a user who deliberately typed
+    /// "h264_nvenc", or "libx264"/"cpu" to force CPU) is never second-guessed
+    /// this way: only "auto" (or blank) triggers the search, and the
+    /// configured ffmpeg is always used for that.
+    /// </summary>
+    public static string ResolveEffectiveFfmpegPath(RenderOptions render)
+    {
+        var configuredPath = ToolLocator.Resolve("ffmpeg", render.FfmpegPath);
+
+        var encoder = (render.Encoder ?? "auto").Trim();
+        var isAuto = encoder.Length == 0 || encoder.Equals("auto", StringComparison.OrdinalIgnoreCase);
+        if (!isAuto || HasWorkingHardwareEncoder(configuredPath))
+        {
+            return configuredPath;
+        }
+
+        foreach (var candidate in ToolLocator.ResolveAllCandidates("ffmpeg", render.FfmpegPath))
+        {
+            if (!string.Equals(candidate, configuredPath, StringComparison.OrdinalIgnoreCase) &&
+                HasWorkingHardwareEncoder(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return configuredPath;
+    }
+
+    private static bool HasWorkingHardwareEncoder(string ffmpegPath) =>
+        EncoderProbe.Supports(ffmpegPath, "h264_nvenc") ||
+        EncoderProbe.Supports(ffmpegPath, "h264_amf") ||
+        EncoderProbe.Supports(ffmpegPath, "h264_qsv");
+
+    /// <summary>
+    /// One-line summary of what a render with these options will actually use -
+    /// "h264_nvenc via C:\path\to\ffmpeg.exe" or similar. Whether the resolved
+    /// encoder ends up CPU (libx264) is normally invisible until someone
+    /// happens to check Task Manager mid-render; surfacing it directly in the
+    /// UI after each build removes the guesswork around whether "still uses
+    /// CPU" means the encoder pick failed, or simply that the render's CPU
+    /// cost is dominated by something encoding can't speed up (heavy filter
+    /// work - e.g. a large supersample_target_width - runs on the CPU
+    /// regardless of which encoder finishes the segment).
+    /// </summary>
+    public static string DescribeEffectiveEncoder(RenderOptions render)
+    {
+        var encoder =
+            string.IsNullOrWhiteSpace(render.Encoder) ||
+            render.Encoder.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase)
+                ? ResolveEncoder(render)
+                : render.Encoder;
+        return $"{encoder} via {ResolveEffectiveFfmpegPath(render)}";
     }
 
     /// <summary>Pure mapping of encoder + libx264-style preset/CRF onto encoder arguments.</summary>
@@ -467,7 +609,169 @@ public static class PreviewRenderPlanFactory
         _ => "balanced",
     };
 
-    private static string BuildZoompanFilter(
+    /// <summary>
+    /// Caches the single frame produced by the (potentially expensive)
+    /// supersample <c>scale</c>/<c>pad</c> stage that precedes this call and
+    /// replays it <paramref name="pieceCount"/> times, so that expensive stage
+    /// only actually runs once per segment instead of once per output frame.
+    ///
+    /// The source is opened with "-loop 1 -r fps" (see
+    /// <see cref="SourceInputArguments"/>) purely so downstream filters see
+    /// correctly-timed, sequentially-numbered frames - that fixed a timing bug
+    /// in an earlier version of this pipeline. But it has a costly side effect:
+    /// every one of those duplicated input frames is a distinct frame as far as
+    /// the filter graph is concerned, so anything placed upstream of this
+    /// filter (in particular the supersample <c>scale=...:flags=lanczos</c>,
+    /// which can be very expensive on large sources) was being recomputed from
+    /// scratch for every single output frame - e.g. 150-200+ times per segment
+    /// - even though its result is identical every time. This filter caches
+    /// that first computed frame (<c>size=1</c>) and serves the cached copy for
+    /// the remaining <c>pieceCount - 1</c> repeats, so the expensive upstream
+    /// work effectively happens exactly once per segment while crop/pan (which
+    /// comes after this and does need a per-frame "n" counter) still sees
+    /// pieceCount distinct, correctly-numbered frames.
+    /// </summary>
+    private static string LoopStage(long pieceCount) =>
+        $"loop=loop={Math.Max(0, pieceCount - 1).ToString(CultureInfo.InvariantCulture)}:size=1:start=0,";
+
+    /// <summary>
+    /// Builds the pan stage of the side chain for clips whose viewport size
+    /// never changes (Pan Left/Right/Up/Down, Static) as an explicit
+    /// <c>crop</c> - a fixed, precomputed width/height, with only x and y
+    /// interpolated between <see cref="VideoClip.StartViewport"/> and
+    /// <see cref="VideoClip.EndViewport"/> - followed by a plain resize to the
+    /// render's preview size.
+    ///
+    /// This (and <see cref="BuildZoomPanFilter"/> for clips whose size DOES
+    /// change) replaced an earlier single <c>zoompan</c>-based implementation.
+    /// zoompan's <c>z</c> (zoom) parameter always crops <c>iw/z</c> by
+    /// <c>ih/z</c> - the SAME ratio on both axes as the source frame - so it
+    /// can only ever produce a crop window with the source's own aspect
+    /// ratio. That is fine for Zoom In/Out (which shrink evenly on both axes)
+    /// and incidentally close enough for Pan Left/Right (which move only in
+    /// X), but it cannot express Pan Up/Down at all: those only change Y, so
+    /// the single shared zoom value stays fixed at 1 for the whole clip,
+    /// which forces zoompan's y-clamp bound (<c>ih-ih/zoom</c>) to exactly 0
+    /// and the pan never moves. The same coupling also over-crops Pan
+    /// Left/Right vertically whenever the source isn't already exactly the
+    /// output's aspect ratio. Since <see cref="VideoClip.StartViewport"/>/
+    /// <see cref="VideoClip.EndViewport"/> are always constructed (see
+    /// MotionEngine.PlanClip) to already match the output aspect ratio, an
+    /// explicit crop needs no zoom coupling at all for a pan: x and y move
+    /// independently, and the trailing scale is a clean, non-distorting
+    /// resize because the crop's aspect always matches
+    /// PreviewWidth:PreviewHeight already.
+    ///
+    /// Width and height are passed to <c>crop</c> as plain precomputed
+    /// numbers rather than "n"-dependent expressions - deliberately, even
+    /// though they're mathematically constant here anyway. ffmpeg's
+    /// <c>crop</c> filter fixes its OUTPUT LINK's frame size once, when the
+    /// filter is configured, because every filter downstream of it in the
+    /// graph is negotiated against a single fixed frame size; consequently
+    /// its <c>w</c>/<c>h</c> expressions are only ever evaluated ONCE, at
+    /// that configuration point (effectively with "n" fixed at 0), never
+    /// again for later frames, no matter what they reference. (x/y, which
+    /// only shift the crop's position and never its output size, have no
+    /// such restriction and genuinely re-evaluate every frame - confirmed by
+    /// direct reproduction.) An earlier version of this method embedded "n"
+    /// in width/height too, for every motion type including pans - for a
+    /// pan, since width/height are already constant, that silently evaluated
+    /// to the same value "n" would have given at frame 0 anyway, so nothing
+    /// looked wrong. But it meant that for Zoom In/Out and Push In - which
+    /// actually need width/height to change over the clip - the crop window
+    /// was frozen at its very first frame's size for the ENTIRE remainder of
+    /// the segment: verified directly by rendering a real clip and finding
+    /// well over a hundred consecutive output frames byte-for-byte identical.
+    /// Those motion types are now built by <see cref="BuildZoomPanFilter"/>
+    /// instead, whose zoompan-based <c>z</c> is a sampling parameter rather
+    /// than an output-size parameter and so is not subject to this limit.
+    ///
+    /// Because <c>crop</c> does not itself expand a single input frame into
+    /// <paramref name="pieceCount"/> output frames, the source is opened with
+    /// "-loop 1 -r fps" (see <see cref="SourceInputArguments"/>) so it
+    /// already arrives here as a correctly-timed, indefinitely repeating
+    /// stream; crop's own per-frame <c>n</c> variable then plays the same
+    /// role zoompan's "on" does for <see cref="BuildZoomPanFilter"/>. That
+    /// input-level duplication is also why any expensive filter upstream of
+    /// this one (the supersample scale) needs the separate <see cref="LoopStage"/>
+    /// cache-and-replay filter placed just before this call - otherwise it
+    /// would be recomputed once per output frame instead of once per segment.
+    /// </summary>
+    private static string BuildFixedSizeCropFilter(
+        VideoClip clip, long sourceWidth, long scaledWidth, long scaledHeight,
+        long pieceStart, long pieceCount, ProjectOptions options)
+    {
+        var clipDuration = clip.DurationFrames;
+        var steps = clipDuration > 1 ? clipDuration - 1 : 1;
+        var motionSteps = clip.MotionDurationFrames is { } motionEnd && motionEnd > 1
+            ? Math.Max(1, Math.Min(motionEnd - 1, steps))
+            : steps;
+        var supersample = (double)scaledWidth / sourceWidth;
+
+        // Width/height are identical at both ends - that's what routes a clip
+        // to this method instead of BuildZoomPanFilter - so there is exactly
+        // one true value each, computed once, never an "n"-dependent
+        // expression (see this method's doc comment for why that matters).
+        var width = supersample * clip.StartViewport.Width;
+        var height = supersample * clip.StartViewport.Height;
+        var xStart = supersample * clip.StartViewport.X;
+        var xEnd = supersample * clip.EndViewport.X;
+        var yStart = supersample * clip.StartViewport.Y;
+        var yEnd = supersample * clip.EndViewport.Y;
+
+        string xExpression;
+        string yExpression;
+        if (pieceCount <= 1)
+        {
+            var progress = EasingValue(clip.Easing, clipDuration > 1 ? (double)pieceStart / motionSteps : 0.0);
+            xExpression = F(xStart + (xEnd - xStart) * progress);
+            yExpression = F(yStart + (yEnd - yStart) * progress);
+        }
+        else
+        {
+            var rawProgress = $"((n{SignedOffset(pieceStart)})/{motionSteps})";
+            if (motionSteps != steps)
+            {
+                // The move completes after motionSteps frames and the framing holds.
+                rawProgress = $"min(1,{rawProgress})";
+            }
+
+            var progress = EasingExpression(clip.Easing, rawProgress);
+            xExpression = $"min(iw-ow,max(0,{F(xStart)}+({F(xEnd - xStart)})*{progress}))";
+            yExpression = $"min(ih-oh,max(0,{F(yStart)}+({F(yEnd - yStart)})*{progress}))";
+        }
+
+        return $"crop=w='{F(width)}':h='{F(height)}':x='{xExpression}':y='{yExpression}'," +
+               $"scale={options.Render.PreviewWidth}:{options.Render.PreviewHeight}";
+    }
+
+    /// <summary>
+    /// Builds the pan/zoom stage of the side chain for clips whose viewport
+    /// size DOES change between <see cref="VideoClip.StartViewport"/> and
+    /// <see cref="VideoClip.EndViewport"/> (Zoom In/Out, Push In), using
+    /// <c>zoompan</c>. See <see cref="BuildFixedSizeCropFilter"/>'s doc
+    /// comment for the full story: <c>crop</c> cannot animate its own
+    /// width/height per frame (only x/y), because ffmpeg fixes a filter's
+    /// OUTPUT frame size once at configuration time, so it was never a viable
+    /// primitive for these two motion types despite briefly replacing
+    /// zoompan for everything. zoompan's <c>z</c> is a sampling parameter,
+    /// not an output-size parameter - its output stays fixed at <c>s=</c> - so
+    /// it re-evaluates correctly every frame; its known limitation (a single
+    /// zoom value crops both axes by the same ratio, which cannot express an
+    /// independent-axis pan) simply doesn't apply here, since Zoom In/Out and
+    /// Push In are already a symmetric shrink/grow on both axes by
+    /// construction (see MotionEngine.PlanClip's ZoomIn/ZoomOut case).
+    ///
+    /// Unlike <see cref="BuildFixedSizeCropFilter"/>, this does not need
+    /// <see cref="LoopStage"/> before it: zoompan's own <c>d</c> parameter is
+    /// a self-contained "repeat this one input frame this many times before
+    /// asking upstream for another" counter (its "on" variable counts through
+    /// those repeats), so - exactly like the cache LoopStage builds for crop -
+    /// it only ever pulls a single frame through the (potentially expensive)
+    /// upstream supersample scale for the whole segment, with no extra filter
+    /// required to make that happen.
+    /// </summary>
+    private static string BuildZoomPanFilter(
         VideoClip clip, long sourceWidth, long scaledWidth, long scaledHeight,
         long pieceStart, long pieceCount, ProjectOptions options)
     {
@@ -499,7 +803,6 @@ public static class PreviewRenderPlanFactory
                           ((clip.EndViewport.X - clip.StartViewport.X) * progress);
             var centerY = (clip.StartViewport.Y + clip.StartViewport.Height / 2.0) +
                           ((clip.EndViewport.Y - clip.StartViewport.Y) * progress);
-            var height = clip.StartViewport.Height + (clip.EndViewport.Height - clip.StartViewport.Height) * progress;
             var zoom = sourceWidth / width;
 
             zoomExpression = F(zoom);

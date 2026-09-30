@@ -97,12 +97,36 @@ if (command == "export-batch")
         ? Directory.GetFiles(imagesDir, "*.png").Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase)
         : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    // Canvas: the pixel size to generate at, so MotionEngine has enough
+    // overscan to crop a real pan/zoom instead of silently falling back to a
+    // push-in (see MotionEngine.PushInFallback) - kept square/wide here
+    // regardless of which generator actually produces the image. Aspect: the
+    // literal ratio string for the PAID Gemini API path specifically (via
+    // Renderly's --renderly mode or direct GeminiImageClient); it only
+    // special-cases 21:9 for PL/PR, since that is the one shape Google Flow's
+    // own UI cannot produce at all. PU/PD's 1:1 is left at the API's plain
+    // 16:9 default here on purpose - Flow already offers 1:1 natively and for
+    // free (see FLOWBATCH_ASPECT_BY_MOTION in WhisperRadar, and Renderly's
+    // own Flow Driver), so there is nothing to gain by spending a paid
+    // generation on it. Use Flow (FlowBatch, or engine=renderly/mode=flow)
+    // for PU/PD's overscan; the API is only worth it for PL/PR.
     var canvas = new Dictionary<string, string>
     {
         ["ST"] = "2304x1296", ["ZI"] = "2304x1296", ["ZO"] = "2304x1296",
-        ["PL"] = "2880x1296", ["PR"] = "2880x1296",
-        ["PU"] = "2304x2160", ["PD"] = "2304x2160",
+        ["PL"] = "3024x1296", ["PR"] = "3024x1296",
+        ["PU"] = "2304x2304", ["PD"] = "2304x2304",
         ["PV"] = "3840x1296",
+    };
+    var aspect = new Dictionary<string, string>
+    {
+        ["ST"] = "16:9", ["ZI"] = "16:9", ["ZO"] = "16:9",
+        ["PL"] = "21:9", ["PR"] = "21:9",
+        // Free via Flow (1:1) - not worth a paid API call. Flow-side code
+        // paths still request "1:1" for these on their own; this "aspect"
+        // field only feeds the API path.
+        ["PU"] = "16:9", ["PD"] = "16:9",
+        // 3840x1296 is 2.96:1, wider than any preset - 21:9 is the closest legal one.
+        ["PV"] = "21:9",
     };
 
     var missing = new JsonArray();
@@ -121,6 +145,7 @@ if (command == "export-batch")
         {
             ["file"] = file,
             ["canvas"] = canvas.GetValueOrDefault(motion, "2304x1296"),
+            ["aspect"] = aspect.GetValueOrDefault(motion, "16:9"),
             ["motion"] = motion,
             ["prompt"] = (string?)img["prompt"] ?? "",
         });
@@ -254,7 +279,8 @@ if (command == "export-capcut")
 }
 
 var progress = new Progress<double>(p => Console.Write($"\rrender {p,5:P1}   "));
-var service = new PreviewRenderService(new FfmpegRunner(options.Render.FfmpegPath));
+var service = new PreviewRenderService(
+    new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(options.Render)));
 RenderResult result;
 if (preview)
 {

@@ -100,7 +100,26 @@ public sealed class FfmpegRunner
 
         try
         {
-            await process.WaitForExitAsync(cancellationToken);
+            // ConfigureAwait(false) matters here: EncoderProbe.Load calls this
+            // method synchronously via ".GetAwaiter().GetResult()" (it has to,
+            // since ResolveEncoder/PreviewRenderPlanFactory.Build are public
+            // synchronous APIs used by the CLI as well as the UI). When that
+            // blocking call happens on the WPF UI thread - which it does, the
+            // very first time BUILD PREVIEW/RENDER FINAL runs
+            // PreviewRenderPlanFactory.Build() directly on the UI thread before
+            // any segment work is parallelized - the awaited continuation below
+            // would otherwise be posted back to the UI thread's
+            // DispatcherSynchronizationContext to resume. But that thread is
+            // blocked inside GetResult() waiting for exactly this task, and a
+            // blocked thread can't pump the dispatcher queue that would let its
+            // own continuation run: a classic sync-over-async deadlock, and
+            // exactly why the app would start "Building..." and then freeze
+            // solid - not slow, permanently stuck - the moment it first tried to
+            // probe for a GPU encoder. ConfigureAwait(false) resumes this method
+            // on a thread-pool thread instead, so the probe still briefly blocks
+            // the UI thread while ffmpeg -encoders runs (well under a second),
+            // but it always completes instead of hanging forever.
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

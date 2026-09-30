@@ -19,7 +19,8 @@ internal static class Program
         int? ChannelId,
         string ImageSize,
         int? UpscaleScale,
-        IReadOnlyList<int> RefAssetIds);
+        IReadOnlyList<int> RefAssetIds,
+        IReadOnlySet<string>? MotionFilter);
 
     private static int Main(string[] args)
     {
@@ -118,13 +119,29 @@ internal static class Program
         Console.WriteLine(
             $"shotlist: {document.Shots.Count} shots, {planned.Count} planned images" +
             (document.Style is null ? "" : " + master style prompt"));
+        if (options.MotionFilter is { } motionFilter)
+        {
+            Console.WriteLine(
+                $"motion filter: only [{string.Join(", ", motionFilter)}] this run");
+        }
 
         var review = new List<ReviewItem>();
         var reviewGate = new object();
         var toGenerate = new List<(string File, string Prompt)>();
         var skipped = 0;
+        var filteredOut = 0;
         foreach (var (file, prompt) in planned)
         {
+            // --motion-filter scopes this run to a subset of motion codes (e.g. only
+            // PL/PR go through the paid API; the rest are left for a free generator
+            // to pick up separately) - filtered-out files are neither generated,
+            // existing, nor failed this run, so they get no review entry at all.
+            if (options.MotionFilter is { } filter && !filter.Contains(MotionSuffixOf(file)))
+            {
+                filteredOut++;
+                continue;
+            }
+
             if (file != Path.GetFileName(file) || file.Contains(':'))
             {
                 review.Add(new ReviewItem(file, prompt, ReviewStatus.Failed,
@@ -155,7 +172,8 @@ internal static class Program
 
         if (options.DryRun)
         {
-            Console.WriteLine($"dry run: {toGenerate.Count} would be generated, {skipped} already exist.");
+            Console.WriteLine($"dry run: {toGenerate.Count} would be generated, {skipped} already exist" +
+                (filteredOut > 0 ? $", {filteredOut} filtered out by --motion-filter." : "."));
             foreach (var (file, prompt) in toGenerate)
             {
                 Console.WriteLine($"[gen ] {file} ({prompt.Length} chars)");
@@ -166,7 +184,9 @@ internal static class Program
 
         if (toGenerate.Count == 0)
         {
-            Console.WriteLine("nothing to generate — every planned image is already on disk.");
+            Console.WriteLine(filteredOut > 0
+                ? "nothing to generate — every image matching --motion-filter is already on disk."
+                : "nothing to generate — every planned image is already on disk.");
             WriteContactSheet(projectFolder, review);
             return 0;
         }
@@ -182,29 +202,60 @@ internal static class Program
         }
 
         var apiKey = renderly is null ? RequireApiKey(options.ApiKey) : null;
+        var perFileAspect = LoadPerFileAspect(projectFolder);
+        if (perFileAspect.Count > 0)
+        {
+            Console.WriteLine(
+                $"per-shot aspect ratios: {perFileAspect.Count} loaded from out\\image-batch.json");
+        }
+
         var generated = 0;
         var failed = 0;
         var start = DateTime.Now;
+
+        // Renderly only: a quota/billing wall means every remaining call will
+        // fail the same way, so stop calling the API the moment one is seen
+        // instead of burning the rest of the batch on retries that cannot
+        // succeed. Exit code 3 tells the caller (WhisperRadar) this is that
+        // specific case, distinct from ordinary per-image failures (exit 1),
+        // so it can fall back to a free generator (the Flow Driver) for
+        // whatever is still missing instead of just giving up.
+        var quotaExhausted = false;
+        var quotaSkipped = 0;
 
         await Parallel.ForEachAsync(
             toGenerate,
             new ParallelOptions { MaxDegreeOfParallelism = options.Parallel },
             async (item, ct) =>
             {
+                if (renderly is not null && quotaExhausted)
+                {
+                    lock (reviewGate)
+                    {
+                        Interlocked.Increment(ref quotaSkipped);
+                        review[review.FindIndex(r => r.FileName == item.File)] = new ReviewItem(
+                            item.File, item.Prompt, ReviewStatus.Failed,
+                            "skipped — Renderly quota/billing limit reached earlier in this batch");
+                    }
+
+                    return;
+                }
+
                 try
                 {
                     var fullPrompt = document.Style is null
                         ? item.Prompt
                         : document.Style + "\n\n" + item.Prompt;
+                    var aspect = perFileAspect.GetValueOrDefault(item.File, options.Aspect);
                     byte[] data;
                     if (renderly is not null)
                     {
                         data = await GenerateViaRenderlyAsync(
-                            renderly, options, item, fullPrompt, ct);
+                            renderly, options, item, fullPrompt, aspect, ct);
                     }
                     else
                     {
-                        var client = new GeminiImageClient(options.Model, apiKey!, options.Aspect);
+                        var client = new GeminiImageClient(options.Model, apiKey!, aspect);
                         (data, _) = await client.GenerateAsync(fullPrompt, ct);
                     }
 
@@ -230,27 +281,61 @@ internal static class Program
                             item.File, item.Prompt, ReviewStatus.Failed, ex.Message);
                     }
 
+                    if (renderly is not null && IsQuotaOrBillingError(ex.Message))
+                    {
+                        quotaExhausted = true;
+                    }
+
                     Console.WriteLine($"[fail] {item.File} — {ex.Message}");
                 }
             });
 
         var elapsed = DateTime.Now - start;
         Console.WriteLine(
-            $"done in {elapsed.TotalMinutes:0.#} min: {generated} generated, {skipped} skipped, {failed} failed.");
+            $"done in {elapsed.TotalMinutes:0.#} min: {generated} generated, {skipped} skipped, {failed} failed" +
+            (quotaSkipped > 0 ? $", {quotaSkipped} skipped (quota/billing)" : "") +
+            (filteredOut > 0 ? $", {filteredOut} filtered out by --motion-filter." : "."));
 
         WriteContactSheet(projectFolder, review);
         Console.WriteLine($"review sheet: {Path.Combine(projectFolder, "out", "image-review.html")}");
+        if (quotaExhausted)
+        {
+            Console.WriteLine(
+                "quota/billing limit reached — stopped early so the caller can fall back to a free generator.");
+            return 3;
+        }
+
         return failed > 0 ? 1 : 0;
     }
 
+    /// <summary>The motion-code suffix of a shot filename (e.g. "S01_01_SCN_PU.png" -&gt;
+    /// "PU"), the same convention MotionCodes/export-batch use elsewhere. A name with
+    /// no underscore (or an unrecognized stem) yields the whole stem uppercased, which
+    /// simply never matches a --motion-filter set and is filtered out - the same as any
+    /// other file that doesn't carry a real motion code.</summary>
+    private static string MotionSuffixOf(string file)
+    {
+        var stem = Path.GetFileNameWithoutExtension(file);
+        var idx = stem.LastIndexOf('_');
+        return (idx >= 0 ? stem[(idx + 1)..] : stem).ToUpperInvariant();
+    }
+
+    /// <summary>True for the wording Renderly's backend uses when Gemini's quota or
+    /// billing is exhausted (services/gemini_client.py's QuotaExceededError, surfaced
+    /// through generation.error) as well as GeminiImageClient's own direct-mode
+    /// equivalent - both are permanent for the rest of this run, not worth retrying.</summary>
+    private static bool IsQuotaOrBillingError(string message) =>
+        message.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("billing", StringComparison.OrdinalIgnoreCase);
+
     private static async Task<byte[]> GenerateViaRenderlyAsync(
         RenderlyClient renderly, Options options,
-        (string File, string Prompt) item, string fullPrompt, CancellationToken ct)
+        (string File, string Prompt) item, string fullPrompt, string? aspect, CancellationToken ct)
     {
         var name = Path.GetFileNameWithoutExtension(item.File);
         var generation = await renderly.GenerateAsync(
             options.ChannelId!.Value, fullPrompt, name, options.ImageSize,
-            options.Aspect ?? "16:9", options.RefAssetIds, ct);
+            aspect ?? "16:9", options.RefAssetIds, ct);
         if (generation.Status != "done" || generation.ImageUrl is null)
         {
             throw new ImageGenerationException(generation.Error is { Length: > 0 } error
@@ -272,6 +357,45 @@ internal static class Program
         return await renderly.DownloadAsync(generation, ct);
     }
 
+    /// <summary>Per-file aspect-ratio overrides from out\image-batch.json (written by
+    /// `ImgToVideo.Cli export-batch`), so PL/PR/PU/PD shots request the wider or taller
+    /// canvas MotionEngine needs instead of one flat --aspect for the whole batch.
+    /// Missing or unreadable file -> empty map, callers fall back to --aspect.</summary>
+    private static Dictionary<string, string> LoadPerFileAspect(string projectFolder)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var batchPath = Path.Combine(projectFolder, "out", "image-batch.json");
+        if (!File.Exists(batchPath))
+        {
+            return result;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(batchPath));
+            if (doc.RootElement.TryGetProperty("images", out var images))
+            {
+                foreach (var entry in images.EnumerateArray())
+                {
+                    if (entry.TryGetProperty("file", out var fileElement) &&
+                        entry.TryGetProperty("aspect", out var aspectElement) &&
+                        fileElement.GetString() is { Length: > 0 } file &&
+                        aspectElement.GetString() is { Length: > 0 } aspect)
+                    {
+                        result[file] = aspect;
+                    }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            Console.WriteLine(
+                $"[warn] could not read out\\image-batch.json for per-shot aspect ratios: {ex.Message}");
+        }
+
+        return result;
+    }
+
     private static void WriteContactSheet(string projectFolder, IReadOnlyList<ReviewItem> review)
     {
         var outDirectory = Path.Combine(projectFolder, "out");
@@ -291,6 +415,7 @@ internal static class Program
         string? aspect = null, apiKey = null, renderlyBase = null, imageSize = "1K";
         int? channelId = null, upscaleScale = null;
         var refAssets = new List<int>();
+        HashSet<string>? motionFilter = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -315,6 +440,7 @@ internal static class Program
                 case "--image-size":
                 case "--upscale":
                 case "--ref-asset":
+                case "--motion-filter":
                     if (i + 1 >= args.Length)
                     {
                         throw new ArgumentException($"{arg} needs a value.");
@@ -378,6 +504,18 @@ internal static class Program
                             }
 
                             break;
+                        case "--motion-filter":
+                            motionFilter = args[++i].Split(',')
+                                .Select(t => t.Trim().ToUpperInvariant())
+                                .Where(t => t.Length > 0)
+                                .ToHashSet();
+                            if (motionFilter.Count == 0)
+                            {
+                                throw new ArgumentException(
+                                    "--motion-filter needs codes like \"PL,PR\".");
+                            }
+
+                            break;
                     }
 
                     break;
@@ -423,7 +561,7 @@ internal static class Program
 
         return new Options(
             folder, force, parallel, model, aspect, apiKey, dryRun, listModels,
-            renderlyBase, channelId, imageSize, upscaleScale, refAssets);
+            renderlyBase, channelId, imageSize, upscaleScale, refAssets, motionFilter);
     }
 
     private static void PrintUsage()
@@ -447,7 +585,15 @@ internal static class Program
               --model <name>     Gemini image model (direct mode only; default
                                  gemini-2.5-flash-image; --list-models shows the image models
                                  on your account)
-              --aspect <ratio>   aspect hint (default 16:9)
+              --aspect <ratio>   aspect hint (default 16:9); overridden per file when
+                                 out\image-batch.json has an "aspect" entry for it
+                                 (written by `ImgToVideo.Cli export-batch`)
+              --motion-filter <codes>
+                                 only generate shots whose filename motion-code suffix
+                                 (e.g. "S01_01_SCN_PL.png" -> PL) is in this comma list,
+                                 e.g. "PL,PR" - everything else in the shotlist is left
+                                 untouched (no review entry) for another generator to
+                                 pick up. Omit to generate the whole shotlist as before.
               --api-key <key>    API key for direct mode (default: GEMINI_API_KEY or
                                  GOOGLE_API_KEY env var; Renderly mode uses its own key)
               --force            regenerate even when the file already exists
@@ -457,6 +603,11 @@ internal static class Program
             Without --renderly the tool calls the Gemini API directly. With --renderly,
             generation runs inside Renderly (history, spend tracking, channel references,
             optional GPU upscale) and the finished image is downloaded into images\.
+
+            Exit codes: 0 all requested images generated (or already existed); 1 some
+            images failed for ordinary reasons; 3 (--renderly only) stopped early because
+            Renderly reported a quota/billing limit - a caller can fall back to a free
+            generator for whatever is still missing from images\.
 
             The shotlist "style" field is prepended to every prompt. Existing files are
             skipped, so re-running the tool only fills the gaps. A review sheet is written
