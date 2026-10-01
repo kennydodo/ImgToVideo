@@ -440,6 +440,13 @@ public static class ManifestPlanner
         var (startViewport, endViewport) = ResolveViewports(
             shot, asset, motion, motionSource, motionText, image, options, issues);
 
+        // A pan's actual on-screen motion runs for motionDurationFrames when set,
+        // otherwise the whole clip (see MotionDurationMs). Long pans need Linear
+        // instead of the default Ease-In-Out, or the motion visibly stalls well
+        // before the clip ends - see LongPanLinearThresholdSeconds for why.
+        var effectiveMotionSeconds = (motionDurationFrames ?? duration) / fps;
+        var easing = shotOverride?.Easing ?? ResolveEasing(motion, effectiveMotionSeconds, options.Motion);
+
         return new VideoClip
         {
             FilePath = image.FilePath,
@@ -452,12 +459,26 @@ public static class ManifestPlanner
             ImageType = AssetTypeMap.TryGetValue(asset.Type ?? "", out var imageType)
                 ? imageType
                 : null,
-            Easing = shotOverride?.Easing ?? options.Motion.Easing,
+            Easing = easing,
             StartViewport = startViewport,
             EndViewport = endViewport,
             MotionDurationFrames = motionDurationFrames,
         };
     }
+
+    private static EasingMode ResolveEasing(MotionType motion, double motionSeconds, MotionOptions motionOptions)
+    {
+        if (IsPanMotion(motion) && motionSeconds > motionOptions.LongPanLinearThresholdSeconds)
+        {
+            return EasingMode.Linear;
+        }
+
+        return motionOptions.Easing;
+    }
+
+    private static bool IsPanMotion(MotionType motion) =>
+        motion is MotionType.PanLeft or MotionType.PanRight or MotionType.PanUp
+            or MotionType.PanDown or MotionType.PanReveal;
 
     private static void ApplyTransitions(
         List<(VideoClip Clip, VisualAsset Asset)> clips,
