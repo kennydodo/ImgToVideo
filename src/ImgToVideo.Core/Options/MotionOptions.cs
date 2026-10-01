@@ -14,6 +14,15 @@ public sealed class MotionOptions
     public int StaticEveryMinShots { get; set; } = 4;
     public int StaticEveryMaxShots { get; set; } = 6;
 
-    /// <summary>Milliseconds after which clip motion completes and the framing holds (0 = whole clip).</summary>
-    public long MotionDurationMs { get; set; } = 4500;
+    /// <summary>
+    /// Milliseconds after which clip motion completes and the framing holds.
+    /// 0 means motion runs for the whole clip - the shot's actual hold length,
+    /// whatever that is - instead of completing early and freezing on the end
+    /// frame for the remainder. This is the default: a fixed sub-clip duration
+    /// (the old default was 4500ms) truncates pans/zooms on any shot held
+    /// longer than that, which is never what "motion for this shot" means.
+    /// A per-shot override (Shot.Motion.DurationMs) still takes precedence
+    /// when a shot explicitly wants a shorter, timed motion.
+    /// </summary>
+    public long MotionDurationMs { get; set; } = 0;
 }
