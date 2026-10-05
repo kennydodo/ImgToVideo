@@ -257,6 +257,7 @@ public static class ProjectLoader
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var images = new List<ImageInfo>();
+        var parser = new ImageFilenameParser(naming);
         foreach (var file in Directory.EnumerateFiles(imagesDir)
                      .OrderBy(f => Path.GetFileName(f), NaturalSortComparer.Instance))
         {
@@ -275,9 +276,17 @@ public static class ProjectLoader
             WarnOnRiskyPngFormat(file, issues);
 
             var stem = Path.GetFileNameWithoutExtension(file);
+            // Best-effort grammar parse: manifest naming (e.g. S01_B07_01.png)
+            // stays loadable, but a parseable name keeps its motion/type codes,
+            // so filename motion codes drive the planner like LoadImages names do.
+            if (!parser.TryParse(stem, out var parsed) || parsed is null)
+            {
+                parsed = new ParsedImageName(stem, ParseSceneNumber(stem), 0, null, false);
+            }
+
             images.Add(new ImageInfo(
                 file,
-                new ParsedImageName(stem, ParseSceneNumber(stem), 0, null, false),
+                parsed,
                 width,
                 height));
         }

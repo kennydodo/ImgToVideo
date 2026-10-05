@@ -242,13 +242,16 @@ public static class Fcp7XmlExporter
         // larger than the sequence frame by ~20%.)
         double ScaleAt(long f) => resolution.Width * 100.0 / ViewportWidth(f);
 
-        // Premiere's Motion center is relative to the FRAME CENTER (0,0),
-        // not absolute sequence pixels — absolute values push the image
-        // off-screen and render black frames.
+        // Premiere's Motion position is frame-center-relative in sequence px,
+        // but the xmeml "center" parameter is in units of the MEDIA's native
+        // size: Position = frameCenter + center × mediaDim (verified against a
+        // working Premiere import). Pixel values here get clamped to int16 and
+        // push the image off-screen; an unknown "position" parameterid is
+        // silently DROPPED on import, which made pans import as static.
         double HorizAt(long f) =>
-            (sourceWidth / 2.0 - ViewportCenterX(f)) * (resolution.Width / ViewportWidth(f));
+            (sourceWidth / 2.0 - ViewportCenterX(f)) * (resolution.Width / ViewportWidth(f)) / sourceWidth;
         double VertAt(long f) =>
-            (sourceHeight / 2.0 - ViewportCenterY(f)) * (resolution.Height / ViewportHeight(f));
+            (sourceHeight / 2.0 - ViewportCenterY(f)) * (resolution.Height / ViewportHeight(f)) / sourceHeight;
 
         // Sample the eased motion every ~half second (min 2, max 13 keyframes)
         // so Premiere reproduces the easing instead of a linear slide. Overlay
@@ -276,8 +279,8 @@ public static class Fcp7XmlExporter
 
         var centerParameter = new XElement("parameter",
             new XAttribute("authoringApp", "PremierePro"),
-            new XElement("parameterid", "position"),
-            new XElement("name", "Position"),
+            new XElement("parameterid", "center"),
+            new XElement("name", "Center"),
             CenterValue(HorizAt(samples[0]), VertAt(samples[0])),
             samples.Select(f => new XElement("keyframe",
                 new XElement("when", f.ToString(CultureInfo.InvariantCulture)),
