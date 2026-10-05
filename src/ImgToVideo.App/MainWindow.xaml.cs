@@ -457,6 +457,21 @@ public partial class MainWindow : Window
                 Path.GetFileName(_projectFolder), _planned.Timeline!, _options, _planned.Issues,
                 _planned.Coverage),
             Path.Combine(outDir, "build-report.json"));
+
+        // Reveal shots: write their partial stills (slices 1..k of the image) and
+        // register them as images, so preview, export and the scene editor treat
+        // them like any other image.
+        var withReveal = await RevealImageWriter.EnsureAsync(
+            _planned.Timeline!, _inventory.AllImages,
+            new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render)));
+        var knownPaths = _inventory.AllImages
+            .Select(i => i.FilePath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var image in withReveal.Where(i => !knownPaths.Contains(i.FilePath)).ToList())
+        {
+            _inventory.AllImages.Add(image);
+        }
+
         return true;
     }
 

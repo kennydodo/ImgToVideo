@@ -253,11 +253,19 @@ if (command == "plan")
     return 0;
 }
 
+// Reveal shots need their partial stills (slices 1..k of the image) on disk
+// before any export or render; they join the image list as ordinary images.
+IReadOnlyList<ImageInfo> images = inventory.AllImages;
+{
+    var ffmpegForReveal = new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(options.Render));
+    images = await RevealImageWriter.EnsureAsync(planned.Timeline, images, ffmpegForReveal);
+}
+
 if (command == "export-premiere")
 {
     var xmlPath = Path.Combine(outDir, "premiere.xml");
     var xml = Fcp7XmlExporter.Export(
-        planned.Timeline, inventory.AllImages,
+        planned.Timeline, images,
         new PremiereExportOptions { IncludeMotionKeyframes = true });
     File.WriteAllText(xmlPath, xml);
     Console.WriteLine($"premiere xml: {xmlPath} — import it into Premiere (File > Import).");
@@ -268,7 +276,7 @@ if (command == "export-capcut")
 {
     var draftName = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar));
     var draftFolder = Path.Combine(outDir, "capcut", draftName);
-    var contentPath = CapCutDraftExporter.Export(planned.Timeline, inventory.AllImages, draftFolder);
+    var contentPath = CapCutDraftExporter.Export(planned.Timeline, images, draftFolder);
     var draftRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CapCut", "User Data", "Projects", "com.lveditor.draft");
@@ -285,7 +293,7 @@ RenderResult result;
 if (preview)
 {
     var plan = PreviewRenderPlanFactory.Build(
-        planned.Timeline, inventory.AllImages, options,
+        planned.Timeline, images, options,
         Path.Combine(outDir, "render"), Path.Combine(outDir, "preview.mp4"));
     result = await service.RenderAsync(plan, maxParallelism: 2, progress);
 }
@@ -294,7 +302,7 @@ else
     var renderOptions = FinalRenderOptions(options);
     var finalDirectory = Path.Combine(outDir, "final");
     var plan = PreviewRenderPlanFactory.Build(
-        planned.Timeline, inventory.AllImages, renderOptions,
+        planned.Timeline, images, renderOptions,
         Path.Combine(finalDirectory, "render"),
         Path.Combine(finalDirectory, "final.mp4"));
     result = await service.RenderAsync(plan, maxParallelism: 2, progress);

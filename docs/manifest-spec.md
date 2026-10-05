@@ -96,6 +96,25 @@ region (WARNING). Non-16:9 viewports letterbox through the existing render modes
    emitted (asset id, file, beat, timecode, `narration_text`, `visual_intent`).
 6. Shots referencing an unknown `asset_id` are ERRORS and dropped the same way.
 
+## Reveal shots — one image, items shown one at a time (added 2026-10-05)
+
+A shot may carry `"reveal": [41, 42, 43]` (also `{"cues": [41, 42, 43]}`): the cue at
+which each item appears. The asset is ONE image holding 2-4 items in a left-to-right
+row, each in its own equal-width slice (thirds for 3 items). The planner turns the shot
+into consecutive clips - step k shows the first k slices, the rest black, the last step
+the whole image - so the narrator's items appear as they are mentioned.
+
+- Static only (ST): a reveal on a moving shot is ignored (`REVEAL_NEEDS_STATIC`).
+- Cues must lie inside the shot's own cues and increase (else `SHOTLIST_REVEAL_INVALID`,
+  whole image shown). The first item shows from the shot's start.
+- Steps closer than 4 frames to each other or to the shot end are skipped
+  (`REVEAL_STEP_SKIPPED`); the slice layout never changes.
+- Each later step fades in over `transitions.revealFadeSeconds` (default 0.25 s, 0 = cut),
+  finishing as the cue starts (the project's transition alignment applies).
+- The partial stills are written to `out\reveal\<image>_reveal<k>of<N>.png` by the CLI /
+  app before export or render; they work unchanged in the preview render, the Premiere
+  XML and the CapCut draft (CapCut exports hard cuts, as for every join).
+
 ## shotlist.json — the LLM plan (one-pass, updated 2026-09-12)
 
 The LLM plans everything from the SRT in ONE pass: `shotlist.json` contains

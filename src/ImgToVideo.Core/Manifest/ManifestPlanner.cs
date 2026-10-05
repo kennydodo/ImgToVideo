@@ -142,6 +142,7 @@ public static class ManifestPlanner
         // Quantize to frames, hold narration pauses on the previous shot (tiling, like
         // the v1 scene inference), and pin the tail to the audio length.
         var clips = new List<(VideoClip Clip, VisualAsset Asset)>();
+        var reveals = new Dictionary<VideoClip, IReadOnlyList<long>>();
         long cursor = 0;
         for (var i = 0; i < planned.Count; i++)
         {
@@ -199,6 +200,21 @@ public static class ManifestPlanner
             }
 
             var clip = BuildClip(shot, asset, image, start, duration, fps, options, overrides, issues);
+            if (shot.RevealAtMs is { Count: >= RevealLimits.MinItems } revealAt)
+            {
+                if (clip.Motion != MotionType.Static)
+                {
+                    issues.Add(new ValidationIssue(
+                        ValidationSeverity.Warning, "REVEAL_NEEDS_STATIC",
+                        $"Shot \"{shot.ShotId}\" asks for a reveal but its motion is {clip.Motion}; " +
+                        "a reveal shot must be static (ST). The whole image is shown instead."));
+                }
+                else
+                {
+                    reveals[clip] = revealAt;
+                }
+            }
+
             clips.Add((clip, asset));
             cursor = start + duration;
         }
@@ -286,19 +302,109 @@ public static class ManifestPlanner
                 DurationFrames = audioFrames,
             },
         };
-        foreach (var group in clips.GroupBy(c => c.Clip.SceneId))
+        var finalClips = ExpandReveals(clips.Select(c => c.Clip).ToList(), reveals, fps, options, issues);
+        foreach (var group in finalClips.GroupBy(c => c.SceneId))
         {
             timeline.Scenes.Add(new Scene
             {
                 Id = group.Key,
-                StartFrame = group.First().Clip.StartFrame,
-                EndFrame = group.Last().Clip.StartFrame + group.Last().Clip.DurationFrames,
-                Clips = group.Select(c => c.Clip).ToList(),
+                StartFrame = group.First().StartFrame,
+                EndFrame = group.Last().StartFrame + group.Last().DurationFrames,
+                Clips = group.ToList(),
             });
         }
 
         var coverage = BuildCoverage(manifest, assetsByAssetId, clips, audioFrames, fps, missingAssets, issues);
         return new ManifestPlanResult(timeline, coverage, issues);
+    }
+
+    /// <summary>Frames a reveal step must hold before the next one may begin.</summary>
+    private const long MinRevealStepFrames = 4;
+
+    /// <summary>
+    /// A reveal shot becomes consecutive clips: step k shows the first k slices of
+    /// the image (the rest black), the last step the whole image. A step whose
+    /// cue is too close to its neighbours is skipped; the next step then shows
+    /// its slice as well, so the slice layout never changes.
+    /// </summary>
+    private static List<VideoClip> ExpandReveals(
+        List<VideoClip> clips, Dictionary<VideoClip, IReadOnlyList<long>> reveals,
+        double fps, ProjectOptions options, List<ValidationIssue> issues)
+    {
+        if (reveals.Count == 0)
+        {
+            return clips;
+        }
+
+        var result = new List<VideoClip>();
+        foreach (var clip in clips)
+        {
+            if (!reveals.TryGetValue(clip, out var atMs))
+            {
+                result.Add(clip);
+                continue;
+            }
+
+            var count = atMs.Count;
+            // (offset from the clip start, slices visible)
+            var steps = new List<(long Offset, int Visible)> { (0, 1) };
+            for (var k = 2; k <= count; k++)
+            {
+                var offset = (long)Math.Round(atMs[k - 1] * fps / 1000.0) - clip.StartFrame;
+                var last = steps[^1].Offset;
+                if (offset < last + MinRevealStepFrames || offset > clip.DurationFrames - MinRevealStepFrames)
+                {
+                    issues.Add(new ValidationIssue(
+                        ValidationSeverity.Warning, "REVEAL_STEP_SKIPPED",
+                        $"Shot \"{clip.ShotId}\": item {k} appears too close to the previous item or to the " +
+                        "end of the shot; it shows together with the next item instead."));
+                    continue;
+                }
+
+                steps.Add((offset, k));
+            }
+
+            if (steps[^1].Visible != count)
+            {
+                // Trailing items were skipped: the last step shows the whole image.
+                steps[^1] = (steps[^1].Offset, count);
+            }
+
+            var fadeFrames = (long)Math.Round(options.Transitions.RevealFadeSeconds * fps);
+            for (var j = 0; j < steps.Count; j++)
+            {
+                var offset = steps[j].Offset;
+                var end = j + 1 < steps.Count ? steps[j + 1].Offset : clip.DurationFrames;
+                var step = new VideoClip
+                {
+                    FilePath = RevealPaths.StepPath(clip.FilePath, steps[j].Visible, count),
+                    SceneId = clip.SceneId,
+                    ShotId = j == 0 ? clip.ShotId : $"{clip.ShotId}.{steps[j].Visible}",
+                    StartFrame = clip.StartFrame + offset,
+                    DurationFrames = end - offset,
+                    Motion = clip.Motion,
+                    MotionSource = clip.MotionSource,
+                    ImageType = clip.ImageType,
+                    Easing = clip.Easing,
+                    StartViewport = clip.StartViewport,
+                    EndViewport = clip.EndViewport,
+                    MotionDurationFrames = clip.MotionDurationFrames,
+                    Transition = clip.Transition,
+                };
+                if (j > 0)
+                {
+                    var previousFrames = steps[j].Offset - steps[j - 1].Offset;
+                    var frames = Math.Min(fadeFrames, Math.Min(previousFrames, step.DurationFrames) - 2);
+                    step.Transition = frames >= 2
+                        ? new TransitionIn { Kind = TransitionKind.Crossfade, DurationFrames = frames }
+                        : null;
+                }
+
+                result.Add(step);
+            }
+        }
+
+        return result;
     }
 
     private static void AbsorbDrop(

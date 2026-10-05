@@ -19,7 +19,8 @@ public sealed record ShotListEntry(
     VisualMotion? Motion,
     VisualTransition? Transition,
     VisualFraming? Framing,
-    string? Scene);
+    string? Scene,
+    IReadOnlyList<int>? RevealCues = null);
 
 public sealed record ShotListDocument(
     IReadOnlyList<ShotListEntry> Shots,
@@ -143,7 +144,8 @@ public static class ShotListParser
                 ParseMotion(TryGet(shot, "motion")),
                 ParseTransition(TryGet(shot, "transition")),
                 ParseFraming(TryGet(shot, "framing")),
-                GetString(shot, "scene")));
+                GetString(shot, "scene"),
+                ParseReveal(shot, number, issues)));
         }
 
         return new ShotListDocument(entries, prompts, style);
@@ -210,6 +212,50 @@ public static class ShotListParser
         firstCue = numbers.Min();
         lastCue = numbers.Max();
         return true;
+    }
+
+    /// <summary>"reveal": [41, 42, 43] - the SRT cue at which each item of a
+    /// left-to-right row appears (the first item shows from the shot's start).
+    /// The object form {"cues": [...]} is accepted too. Anything unusable is
+    /// reported and ignored: the shot then simply shows the whole image.</summary>
+    private static IReadOnlyList<int>? ParseReveal(JsonElement shot, int number, List<ValidationIssue> issues)
+    {
+        if (!shot.TryGetProperty("reveal", out var element) || element.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty("cues", out var inner))
+        {
+            element = inner;
+        }
+
+        var cues = new List<int>();
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Number || !TryGetInt(item, out var value) || value < 1)
+                {
+                    cues.Clear();
+                    break;
+                }
+
+                cues.Add(value);
+            }
+        }
+
+        if (cues.Count < 2 || cues.Count > RevealLimits.MaxItems)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Warning, "SHOTLIST_REVEAL_INVALID",
+                $"shotlist.json: shots[{number}] has an unusable \"reveal\" - give {RevealLimits.MinItems} to " +
+                $"{RevealLimits.MaxItems} cue numbers, one per item, e.g. [41, 42, 43]. The whole image is shown instead."));
+            return null;
+        }
+
+        return cues;
     }
 
     private static JsonElement? TryGet(JsonElement shot, string name) =>
@@ -413,11 +459,14 @@ public static class ShotListExpander
                     .Select(c => byIndex[c].Text)),
                 @"\s+", " ").Trim();
 
+            var revealAtMs = ResolveReveal(entry, n + 1, byIndex, issues);
+
             planned.Add(new PlannedShot(
                 entry.ShotId, n + 1, entry.FirstCue, entry.LastCue, file, file,
                 startMs, endMs, narration,
                 entry.Motion, entry.Transition, entry.Framing, entry.Scene,
-                intent ?? document.Prompts.GetValueOrDefault(file)));
+                intent ?? document.Prompts.GetValueOrDefault(file),
+                RevealAtMs: revealAtMs));
         }
 
         // 2. Narration decides the order: sort by start, note reorders.
@@ -525,7 +574,8 @@ public static class ShotListExpander
                     ? transition.Type.ToUpperInvariant() is { } type && type is "CROSSFADE" or "DIP" or "DIP_WHITE"
                         ? new VisualTransition(type, (long)Math.Round(transitions.DurationSeconds * 1000))
                         : transition
-                    : null));
+                    : null,
+                shot.RevealAtMs));
         }
 
         return new VisualManifest(
@@ -533,6 +583,62 @@ public static class ShotListExpander
             new VisualManifestVideo("shotlist", null, null, null),
             assets,
             shots);
+    }
+
+    /// <summary>Reveal cues -> absolute start times. The cues must be inside the
+    /// shot's own cue range and strictly increasing; the first item always
+    /// shows from the shot's start. Returns null (whole image shown) when the
+    /// list cannot be honoured.</summary>
+    private static IReadOnlyList<long>? ResolveReveal(
+        ShotListEntry entry, int number, Dictionary<int, SubtitleBlock> byIndex, List<ValidationIssue> issues)
+    {
+        if (entry.RevealCues is not { Count: >= 2 } cues)
+        {
+            return null;
+        }
+
+        string? problem = null;
+        for (var i = 0; i < cues.Count && problem is null; i++)
+        {
+            if (cues[i] < entry.FirstCue || cues[i] > entry.LastCue)
+            {
+                problem = $"cue {cues[i]} is outside the shot's cues {entry.FirstCue}-{entry.LastCue}";
+            }
+            else if (i > 0 && cues[i] <= cues[i - 1])
+            {
+                problem = "the cues must be in increasing order, one per item";
+            }
+            else if (!byIndex.ContainsKey(cues[i]))
+            {
+                problem = $"cue {cues[i]} does not exist in the SRT";
+            }
+        }
+
+        if (problem is not null)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Warning, "SHOTLIST_REVEAL_INVALID",
+                $"Shot {number} (asset {entry.Asset}): reveal ignored - {problem}. The whole image is shown instead."));
+            return null;
+        }
+
+        if (cues[0] != entry.FirstCue)
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Info, "SHOTLIST_REVEAL_FIRST",
+                $"Shot {number} (asset {entry.Asset}): the first item shows from the shot's start (cue " +
+                $"{entry.FirstCue}), not from cue {cues[0]}."));
+        }
+
+        var times = new List<long>();
+        for (var i = 0; i < cues.Count; i++)
+        {
+            times.Add(i == 0
+                ? (long)Math.Round(byIndex[entry.FirstCue].StartSeconds * 1000)
+                : (long)Math.Round(byIndex[cues[i]].StartSeconds * 1000));
+        }
+
+        return times;
     }
 
     private static string Normalize(string name) =>
@@ -589,5 +695,6 @@ public static class ShotListExpander
         VisualFraming? Framing,
         string? Scene,
         string? Intent,
-        bool Dropped = false);
+        bool Dropped = false,
+        IReadOnlyList<long>? RevealAtMs = null);
 }
