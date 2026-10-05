@@ -151,6 +151,72 @@ public static class CapCutDraftExporter
             collections[collection].Add(CompanionMaterial(kind, id));
         }
 
+        // Sound effects: one audio material and segment each, packed onto extra audio tracks
+        // so that overlapping sounds never share a track.
+        var soundMaterials = new List<JsonObject>();
+        var soundTracks = new List<(long EndUs, List<JsonObject> Segments)>();
+        foreach (var sound in timeline.Sounds
+                     .Where(sd => !string.IsNullOrWhiteSpace(sd.FilePath))
+                     .OrderBy(sd => sd.StartFrame))
+        {
+            var startUs = Us(sound.StartFrame, fps);
+            if (startUs >= totalUs)
+            {
+                continue;
+            }
+
+            var lengthUs = Math.Min(
+                sound.DurationFrames > 0 ? Us(sound.DurationFrames, fps) : 1_000_000, totalUs - startUs);
+            var materialId = NewId();
+            var companions = new List<string>();
+            foreach (var (kind, collection) in new[] { ("speed", "speeds"), ("sound", "sound_channel_mappings") })
+            {
+                var id = NewId();
+                companions.Add(id);
+                collections[collection].Add(CompanionMaterial(kind, id));
+            }
+
+            soundMaterials.Add(new JsonObject
+            {
+                ["id"] = materialId,
+                ["type"] = "extract_music",
+                ["duration"] = sound.DurationFrames > 0 ? Us(sound.DurationFrames, fps) : lengthUs,
+                ["path"] = ToForwardSlashes(sound.FilePath),
+                ["material_name"] = Path.GetFileName(sound.FilePath),
+                ["has_audio"] = true,
+                ["category_name"] = "local",
+                ["category_id"] = "",
+                ["source_platform"] = 0,
+            });
+
+            var index = soundTracks.FindIndex(t => t.EndUs <= startUs);
+            if (index < 0)
+            {
+                soundTracks.Add((0, new List<JsonObject>()));
+                index = soundTracks.Count - 1;
+            }
+
+            soundTracks[index].Segments.Add(new JsonObject
+            {
+                ["id"] = NewId(),
+                ["material_id"] = materialId,
+                ["target_timerange"] = new JsonObject { ["start"] = startUs, ["duration"] = lengthUs },
+                ["source_timerange"] = new JsonObject { ["start"] = 0, ["duration"] = lengthUs },
+                ["extra_material_refs"] = new JsonArray(companions.Select(id => (JsonNode)id).ToArray()),
+                ["clip"] = new JsonObject
+                {
+                    ["alpha"] = 1.0,
+                    ["flip"] = new JsonObject { ["horizontal"] = false, ["vertical"] = false },
+                    ["rotation"] = 0.0,
+                    ["scale"] = new JsonObject { ["x"] = 1.0, ["y"] = 1.0 },
+                    ["transform"] = new JsonObject { ["x"] = 0.0, ["y"] = 0.0 },
+                },
+                ["common_keyframes"] = new JsonArray(),
+                ["speed"] = 1.0,
+            });
+            soundTracks[index] = (startUs + lengthUs, soundTracks[index].Segments);
+        }
+
         var draft = new JsonObject
         {
             ["id"] = NewId(),
@@ -260,6 +326,24 @@ public static class CapCutDraftExporter
             ["smart_ads_info"] = ParseTemplate(SmartAdsTemplate),
             ["function_assistant_info"] = ParseTemplate(FunctionAssistantTemplate),
         };
+
+        var draftTracks = (JsonArray)draft["tracks"]!;
+        foreach (var (_, segments) in soundTracks)
+        {
+            draftTracks.Add(new JsonObject
+            {
+                ["type"] = "audio",
+                ["attribute"] = 0,
+                ["flag"] = 0,
+                ["segments"] = ToNodeArray(segments),
+            });
+        }
+
+        var draftAudios = (JsonArray)((JsonObject)draft["materials"]!)["audios"]!;
+        foreach (var material in soundMaterials)
+        {
+            draftAudios.Add(material);
+        }
 
         return draft.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
     }

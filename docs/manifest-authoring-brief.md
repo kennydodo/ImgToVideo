@@ -160,7 +160,7 @@ S01_02_CU_ST.png [2304x1296] — <prompt> · refs: david_face
 
 Group by main beat, in beat order. One line per image: filename, canvas, prompt — append `· refs: name1, name2` ONLY when the image entry carries refs (names, in the same order as the JSON). Every image in the JSON appears here exactly once.
 
-## SECTION 7B — REVEAL SHOTS (optional — include only when you want them)
+## SECTION 7B — REVEAL SHOTS AND SOUND EFFECTS (optional — include only when you want them)
 
 A reveal shot shows 2–4 parallel items as the narrator names them: the first item is on screen alone, the second appears when the narration reaches it, then the third. It is ONE image holding the items in a left-to-right row, each in its own equal-width slice (2 items = halves, 3 = thirds, 4 = quarters). The assembler cuts the image along those slice lines and reveals the slices in order, so the layout has to be exact.
 
@@ -176,7 +176,13 @@ Rules for a reveal shot:
 - No character, hand or object may appear in more than one slice, and an item must not need another item to make sense.
 - A reveal image cannot be fixed afterwards: the slices are cut by pixels. If the items cannot be laid out cleanly in equal slices, plan normal shots instead.
 
-Final check for every reveal shot, before you output: the `reveal` list has one cue per item, increasing, starting at the shot's first cue and inside its `cues`; `motion` is ST and the file name ends with _ST; the prompt states the item count, names the items left to right in narration order, keeps each in its own equal slice and forbids anything crossing a slice line; and reveal shots are no more than about 10% of all shots.
+Variant A — a 2×2 grid, for exactly 4 items in a square: `"reveal": {"cues": [c1, c2, c3, c4], "layout": "grid"}`. It is still ONE image, now with four equal quadrants revealed in reading order: top-left, top-right, bottom-left, bottom-right. The rules above apply to the quadrants: the prompt says "four separate items in a 2x2 grid", names them in that order, centers each in its own quadrant, leaves clear empty space around the vertical and horizontal centre lines and lets nothing cross either centre line.
+
+Variant B — separate images one after another, for when each item deserves its own picture (so the same-image limits above do not apply): `"reveal": {"cues": [c1, c2, c3], "assets": ["S05_01_INF_ST.png", "S05_02_INF_ST.png", "S05_03_INF_ST.png"], "layout": "row"}` (layout "row" for 2–3 images, "grid" for exactly 4; "row" is the default). Each asset is its own normal entry in `images`, with a normal prompt for what the narrator says at its cue; the shot's `asset` is the first of `assets`, and every name ends with _ST. The earlier images stay on screen side by side as the next one appears (build-up). Each image is centre-cropped to fill its slot — in a row a tall strip one Nth of the frame wide, in a grid a quarter of the frame — so keep each image to ONE subject centered with generous empty space on both sides. If each picture should instead REPLACE the previous one, do not use `reveal`: plan ordinary consecutive shots.
+
+Sound effects (optional, any shot): add `"sfx": "pop"` to play a short sound (about a second) when the shot starts. On a reveal shot a single name plays at every item; a list gives one name per item, e.g. `["ding", "pop", "pop"]` (the last name repeats when the list is short). Built-in sounds: pop, ding, click, tick, whoosh, swipe. Use them sparingly — on reveal items or a deliberate emphasis — and keep to one or two sounds across the video; never on most shots, and never as a substitute for the narration. A normal shot takes ONE name, not a list.
+
+Final check for every reveal shot, before you output: the `reveal` list has one cue per item, increasing, starting at the shot's first cue and inside its `cues`; `motion` is ST and the file name ends with _ST; the prompt states the item count, names the items left to right in narration order, keeps each in its own equal slice and forbids anything crossing a slice line; a grid has exactly 4 cues; separate images have one `assets` entry per cue, the first equal to `asset`, each its own entry in `images`; any `sfx` is a built-in name; and reveal shots are no more than about 10% of all shots.
 
 ## SECTION 8 — TEXT INSIDE IMAGES
 

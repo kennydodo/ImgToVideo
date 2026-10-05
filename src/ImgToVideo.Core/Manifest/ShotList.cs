@@ -20,7 +20,10 @@ public sealed record ShotListEntry(
     VisualTransition? Transition,
     VisualFraming? Framing,
     string? Scene,
-    IReadOnlyList<int>? RevealCues = null);
+    IReadOnlyList<int>? RevealCues = null,
+    string? RevealLayout = null,
+    IReadOnlyList<string>? RevealAssets = null,
+    IReadOnlyList<string>? Sfx = null);
 
 public sealed record ShotListDocument(
     IReadOnlyList<ShotListEntry> Shots,
@@ -136,6 +139,7 @@ public static class ShotListParser
                 continue;
             }
 
+            var reveal = ParseReveal(shot, number, issues);
             entries.Add(new ShotListEntry(
                 GetString(shot, "shot_id"),
                 firstCue,
@@ -145,7 +149,10 @@ public static class ShotListParser
                 ParseTransition(TryGet(shot, "transition")),
                 ParseFraming(TryGet(shot, "framing")),
                 GetString(shot, "scene"),
-                ParseReveal(shot, number, issues)));
+                reveal?.Cues,
+                reveal?.Layout,
+                reveal?.Assets,
+                ParseSfx(shot, number, issues)));
         }
 
         return new ShotListDocument(entries, prompts, style);
@@ -214,21 +221,68 @@ public static class ShotListParser
         return true;
     }
 
-    /// <summary>"reveal": [41, 42, 43] - the SRT cue at which each item of a
-    /// left-to-right row appears (the first item shows from the shot's start).
-    /// The object form {"cues": [...]} is accepted too. Anything unusable is
-    /// reported and ignored: the shot then simply shows the whole image.</summary>
-    private static IReadOnlyList<int>? ParseReveal(JsonElement shot, int number, List<ValidationIssue> issues)
+    private sealed record ParsedReveal(IReadOnlyList<int> Cues, string Layout, IReadOnlyList<string>? Assets);
+
+    /// <summary>"reveal": [41, 42, 43] - the SRT cue at which each item appears (the first
+    /// item shows from the shot's start). The object form {"cues": [...], "layout": "row"|"grid",
+    /// "assets": ["A.png", "B.png", ...]} adds a 2x2 grid layout (exactly 4 items) and/or
+    /// one separate image per item that builds up item by item. Anything unusable is
+    /// reported and ignored: the shot then simply shows its whole image.</summary>
+    private static ParsedReveal? ParseReveal(JsonElement shot, int number, List<ValidationIssue> issues)
     {
         if (!shot.TryGetProperty("reveal", out var element) || element.ValueKind == JsonValueKind.Null)
         {
             return null;
         }
 
-        if (element.ValueKind == JsonValueKind.Object &&
-            element.TryGetProperty("cues", out var inner))
+        var layout = RevealLayouts.Row;
+        List<string>? assets = null;
+        string? problem = null;
+        if (element.ValueKind == JsonValueKind.Object)
         {
-            element = inner;
+            if (element.TryGetProperty("layout", out var layoutElement) &&
+                layoutElement.ValueKind != JsonValueKind.Null)
+            {
+                if (layoutElement.ValueKind == JsonValueKind.String &&
+                    RevealLayouts.IsValid(layoutElement.GetString()))
+                {
+                    layout = RevealLayouts.Normalize(layoutElement.GetString());
+                }
+                else
+                {
+                    problem = "\"layout\" must be \"row\" or \"grid\"";
+                }
+            }
+
+            if (element.TryGetProperty("assets", out var assetsElement) &&
+                assetsElement.ValueKind != JsonValueKind.Null)
+            {
+                assets = new List<string>();
+                if (assetsElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in assetsElement.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString()))
+                        {
+                            assets = null;
+                            break;
+                        }
+
+                        assets.Add(item.GetString()!.Trim());
+                    }
+                }
+                else
+                {
+                    assets = null;
+                }
+
+                if (assets is null)
+                {
+                    problem ??= "\"assets\" must be a list of image file names";
+                }
+            }
+
+            element = element.TryGetProperty("cues", out var inner) ? inner : default;
         }
 
         var cues = new List<int>();
@@ -246,16 +300,76 @@ public static class ShotListParser
             }
         }
 
-        if (cues.Count < 2 || cues.Count > RevealLimits.MaxItems)
+        if (problem is null && layout == RevealLayouts.Grid && cues.Count != 4)
+        {
+            problem = "a grid reveal needs exactly 4 items";
+        }
+
+        if (problem is null && assets is not null && assets.Count != cues.Count)
+        {
+            problem = "\"assets\" must have one image per cue";
+        }
+
+        if (problem is not null || cues.Count < 2 || cues.Count > RevealLimits.MaxItems)
         {
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Warning, "SHOTLIST_REVEAL_INVALID",
-                $"shotlist.json: shots[{number}] has an unusable \"reveal\" - give {RevealLimits.MinItems} to " +
-                $"{RevealLimits.MaxItems} cue numbers, one per item, e.g. [41, 42, 43]. The whole image is shown instead."));
+                $"shotlist.json: shots[{number}] has an unusable \"reveal\"" +
+                (problem is null ? "" : $" ({problem})") +
+                $" - give {RevealLimits.MinItems} to {RevealLimits.MaxItems} cue numbers, one per item, " +
+                "e.g. [41, 42, 43]. The whole image is shown instead."));
             return null;
         }
 
-        return cues;
+        return new ParsedReveal(cues, layout, assets);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex SfxName =
+        new(@"^[A-Za-z0-9][A-Za-z0-9_.\- ]{0,39}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>"sfx": "pop" or ["pop", "ding", ...] - sound effects by name.</summary>
+    private static IReadOnlyList<string>? ParseSfx(JsonElement shot, int number, List<ValidationIssue> issues)
+    {
+        if (!shot.TryGetProperty("sfx", out var element) || element.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        var names = new List<string>();
+        var ok = true;
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            names.Add(element.GetString() ?? "");
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String)
+                {
+                    ok = false;
+                    break;
+                }
+
+                names.Add(item.GetString() ?? "");
+            }
+        }
+        else
+        {
+            ok = false;
+        }
+
+        names = names.Select(n => n.Trim()).ToList();
+        if (!ok || names.Count == 0 || names.Any(n => !SfxName.IsMatch(n)))
+        {
+            issues.Add(new ValidationIssue(
+                ValidationSeverity.Warning, "SHOTLIST_SFX_INVALID",
+                $"shotlist.json: shots[{number}] has an unusable \"sfx\" - use a sound name such as " +
+                "\"pop\" or a list of names, one per reveal item. No sound is added for this shot."));
+            return null;
+        }
+
+        return names;
     }
 
     private static JsonElement? TryGet(JsonElement shot, string name) =>
@@ -460,13 +574,22 @@ public static class ShotListExpander
                 @"\s+", " ").Trim();
 
             var revealAtMs = ResolveReveal(entry, n + 1, byIndex, issues);
+            var revealAssets = revealAtMs is null ? null : ResolveRevealAssets(entry, byStem);
+            if (revealAssets is not null)
+            {
+                // A build-up of separate images starts with its first image.
+                file = revealAssets[0];
+            }
 
             planned.Add(new PlannedShot(
                 entry.ShotId, n + 1, entry.FirstCue, entry.LastCue, file, file,
                 startMs, endMs, narration,
                 entry.Motion, entry.Transition, entry.Framing, entry.Scene,
                 intent ?? document.Prompts.GetValueOrDefault(file),
-                RevealAtMs: revealAtMs));
+                RevealAtMs: revealAtMs,
+                RevealLayout: revealAtMs is null ? null : entry.RevealLayout,
+                RevealAssets: revealAssets,
+                Sfx: entry.Sfx));
         }
 
         // 2. Narration decides the order: sort by start, note reorders.
@@ -557,6 +680,14 @@ public static class ShotListExpander
                 assets.Add(new VisualAsset(shot.AssetId, shot.File, null, null, null, null, null, null));
             }
 
+            foreach (var extra in shot.RevealAssets ?? [])
+            {
+                if (assetIds.Add(extra))
+                {
+                    assets.Add(new VisualAsset(extra, extra, null, null, null, null, null, null));
+                }
+            }
+
             shots.Add(new VisualShot(
                 shot.ShotId ?? $"shot-{shot.EntryNumber:000}",
                 shot.StartMs,
@@ -575,7 +706,10 @@ public static class ShotListExpander
                         ? new VisualTransition(type, (long)Math.Round(transitions.DurationSeconds * 1000))
                         : transition
                     : null,
-                shot.RevealAtMs));
+                shot.RevealAtMs,
+                shot.RevealLayout,
+                shot.RevealAssets,
+                shot.Sfx));
         }
 
         return new VisualManifest(
@@ -583,6 +717,22 @@ public static class ShotListExpander
             new VisualManifestVideo("shotlist", null, null, null),
             assets,
             shots);
+    }
+
+    /// <summary>The separate images of a build-up reveal as file names (an existing image
+    /// by stem, else the name itself so the planner reports it as missing).</summary>
+    private static IReadOnlyList<string>? ResolveRevealAssets(ShotListEntry entry, Dictionary<string, string> byStem)
+    {
+        if (entry.RevealAssets is not { Count: > 0 } names)
+        {
+            return null;
+        }
+
+        return names
+            .Select(n => byStem.TryGetValue(Path.GetFileNameWithoutExtension(n), out var file)
+                ? file
+                : Path.HasExtension(n) ? n : n + ".png")
+            .ToList();
     }
 
     /// <summary>Reveal cues -> absolute start times. The cues must be inside the
@@ -696,5 +846,8 @@ public static class ShotListExpander
         string? Scene,
         string? Intent,
         bool Dropped = false,
-        IReadOnlyList<long>? RevealAtMs = null);
+        IReadOnlyList<long>? RevealAtMs = null,
+        string? RevealLayout = null,
+        IReadOnlyList<string>? RevealAssets = null,
+        IReadOnlyList<string>? Sfx = null);
 }

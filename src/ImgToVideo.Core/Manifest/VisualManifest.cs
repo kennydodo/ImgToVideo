@@ -46,7 +46,10 @@ public sealed record VisualShot(
     VisualFraming? Framing,
     VisualMotion? Motion,
     VisualTransition? TransitionOut,
-    IReadOnlyList<long>? RevealAtMs = null);
+    IReadOnlyList<long>? RevealAtMs = null,
+    string? RevealLayout = null,
+    IReadOnlyList<string>? RevealAssets = null,
+    IReadOnlyList<string>? Sfx = null);
 
 public sealed record VisualFraming(string Type, string? FocalRegion);
 

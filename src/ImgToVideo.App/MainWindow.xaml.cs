@@ -472,6 +472,16 @@ public partial class MainWindow : Window
             _inventory.AllImages.Add(image);
         }
 
+        // Sound effects named in the shotlist: project sfx\ folder first, then the built-in pack.
+        var soundIssues = await SoundEffectResolver.ResolveAsync(
+            _planned.Timeline!, _projectFolder,
+            new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render)),
+            new Ffprobe(_options.Render.FfprobePath));
+        if (soundIssues.Count > 0)
+        {
+            UpdateIssues(_planned.Issues.Concat(soundIssues).ToList());
+        }
+
         return true;
     }
 

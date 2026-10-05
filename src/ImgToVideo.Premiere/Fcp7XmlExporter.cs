@@ -140,7 +140,8 @@ public static class Fcp7XmlExporter
                     new XElement("samplecharacteristics",
                         new XElement("depth", "16"),
                         new XElement("samplerate", "48000")),
-                    audioTrack)));
+                    audioTrack,
+                    BuildSoundTracks(timeline, timebase, totalFrames))));
 
         var root = new XElement("xmeml", new XAttribute("version", "5"), sequence);
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Environment.NewLine + root;
@@ -373,6 +374,62 @@ public static class Fcp7XmlExporter
             new XElement("sourcetrack",
                 new XElement("mediatype", "audio"),
                 new XElement("trackindex", "1")));
+    }
+
+    /// <summary>
+    /// Sound effects as extra audio tracks (A2, A3, ...) above the narration. A sound that would
+    /// overlap the previous one on its track moves to the next track so nothing is cut.
+    /// </summary>
+    private static IEnumerable<XElement> BuildSoundTracks(Timeline timeline, int timebase, long totalFrames)
+    {
+        var sounds = timeline.Sounds
+            .Where(s => !string.IsNullOrWhiteSpace(s.FilePath) && s.StartFrame < totalFrames)
+            .OrderBy(s => s.StartFrame)
+            .ToList();
+        var tracks = new List<(long End, List<XElement> Items)>();
+        var number = 0;
+        foreach (var sound in sounds)
+        {
+            number++;
+            var length = Math.Max(1, Math.Min(sound.DurationFrames > 0 ? sound.DurationFrames : timebase, totalFrames - sound.StartFrame));
+            var index = tracks.FindIndex(t => t.End <= sound.StartFrame);
+            if (index < 0)
+            {
+                tracks.Add((0, new List<XElement>()));
+                index = tracks.Count - 1;
+            }
+
+            var fileName = Path.GetFileName(sound.FilePath);
+            var fileDuration = (sound.DurationFrames > 0 ? sound.DurationFrames : length).ToString(CultureInfo.InvariantCulture);
+            tracks[index].Items.Add(new XElement("clipitem",
+                new XAttribute("id", $"clipitem-sfx-{number}"),
+                new XElement("name", fileName),
+                new XElement("enabled", "TRUE"),
+                new XElement("duration", fileDuration),
+                Rate(timebase),
+                new XElement("start", sound.StartFrame.ToString(CultureInfo.InvariantCulture)),
+                new XElement("end", (sound.StartFrame + length).ToString(CultureInfo.InvariantCulture)),
+                new XElement("in", "0"),
+                new XElement("out", length.ToString(CultureInfo.InvariantCulture)),
+                new XElement("file",
+                    new XAttribute("id", $"file-sfx-{number}"),
+                    new XElement("name", fileName),
+                    new XElement("pathurl", ToPathUrl(sound.FilePath)),
+                    Rate(timebase),
+                    new XElement("duration", fileDuration),
+                    new XElement("media",
+                        new XElement("audio",
+                            new XElement("samplecharacteristics",
+                                new XElement("depth", "16"),
+                                new XElement("samplerate", "48000")),
+                            new XElement("channelcount", "1")))),
+                new XElement("sourcetrack",
+                    new XElement("mediatype", "audio"),
+                    new XElement("trackindex", "1"))));
+            tracks[index] = (sound.StartFrame + length, tracks[index].Items);
+        }
+
+        return tracks.Select(t => new XElement("track", t.Items, new XElement("enabled", "TRUE")));
     }
 
     private static XElement CenterValue(double horiz, double vert) =>

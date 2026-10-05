@@ -259,6 +259,10 @@ IReadOnlyList<ImageInfo> images = inventory.AllImages;
 {
     var ffmpegForReveal = new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(options.Render));
     images = await RevealImageWriter.EnsureAsync(planned.Timeline, images, ffmpegForReveal);
+
+    // Sound effects named in the shotlist: look each up (project sfx\ folder, then the built-in pack).
+    ReportIssues(await SoundEffectResolver.ResolveAsync(
+        planned.Timeline, folder, ffmpegForReveal, new Ffprobe(options.Render.FfprobePath)));
 }
 
 if (command == "export-premiere")

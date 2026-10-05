@@ -10,4 +10,7 @@ public sealed class Timeline
     public double Fps { get; set; } = 30.0;
     public AudioTrack Audio { get; set; } = new();
     public List<Scene> Scenes { get; set; } = new();
+
+    /// <summary>Short sound effects (reveal pops, whooshes) laid over the narration.</summary>
+    public List<SoundEffect> Sounds { get; set; } = new();
 }

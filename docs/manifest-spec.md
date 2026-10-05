@@ -115,6 +115,33 @@ the whole image - so the narrator's items appear as they are mentioned.
   app before export or render; they work unchanged in the preview render, the Premiere
   XML and the CapCut draft (CapCut exports hard cuts, as for every join).
 
+### Reveal variants and sound effects (added 2026-10-05)
+
+**2x2 grid.** `"reveal": {"cues": [41, 42, 43, 44], "layout": "grid"}` - exactly 4 items in
+one image, four equal quadrants revealed in reading order: top-left, top-right, bottom-left,
+bottom-right. Any other item count with `"layout": "grid"` is `SHOTLIST_REVEAL_INVALID`
+(whole image shown). Stills are `out\reveal\<image>_grid<k>of4.png`.
+
+**Separate images, one after another (build-up).** `"reveal": {"cues": [41, 42, 43],
+"assets": ["A_ST.png", "B_ST.png", "C_ST.png"], "layout": "row"}` - each item is its own
+image; the earlier ones stay on screen as the next appears. Each image is scaled to cover its
+slot and centre-cropped (row: N equal vertical strips; grid: 2x2 quarters), composited on a black
+canvas the size of the output. `assets` needs one image per cue (`SHOTLIST_REVEAL_INVALID`
+otherwise); the shot's own asset becomes the first image; a missing image is reported like any
+missing asset (generate it) and the shot waits until it exists. Composites are
+`out\reveal\<first image>_stack<hash>_<k>of<N>.png` (every step has one, the images differ).
+To make each image REPLACE the previous one instead, use ordinary consecutive shots - no reveal.
+
+**Sound effects.** Any shot may carry `"sfx": "pop"` (or a list). A normal shot plays its
+first name when it starts; on a reveal shot a single name plays at every item that appears and a
+list gives one name per item (the last name repeats). Names resolve to the project's
+`sfx\<name>.wav|mp3|m4a|ogg|flac` first, then to a built-in pack that ffmpeg generates into
+`out\sfx\` on first use: `pop`, `ding`, `click`, `tick`, `whoosh`, `swipe`. An unknown name is
+`SFX_UNKNOWN` and the sound is skipped (`SHOTLIST_SFX_INVALID` for a malformed value). Sounds
+are laid on extra audio tracks in the Premiere XML (A2+; overlapping sounds go to further
+tracks) and the CapCut draft, and mixed over the narration (delayed to their frame) in the
+preview/final render. Sound is about one second; longer files only get an `SFX_LONG` note.
+
 ## shotlist.json — the LLM plan (one-pass, updated 2026-09-12)
 
 The LLM plans everything from the SRT in ONE pass: `shotlist.json` contains

@@ -19,4 +19,7 @@ public sealed class VideoClip
     public Rect StartViewport { get; set; }
     public Rect EndViewport { get; set; }
     public TransitionIn? Transition { get; set; }
+
+    /// <summary>Set on the clips a reveal shot was expanded into; says how the still is built.</summary>
+    public RevealInfo? Reveal { get; set; }
 }

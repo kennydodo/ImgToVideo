@@ -78,6 +78,7 @@ public static class ManifestPlanner
         // time is absorbed by the previous kept shot (or the first one at the head).
         var missingAssets = new List<string>();
         var planned = new List<(VisualShot Shot, VisualAsset Asset, ImageInfo Image)>();
+        var revealSources = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var pendingDropMs = 0L;
         foreach (var shot in manifest.Timeline ?? [])
         {
@@ -116,6 +117,36 @@ public static class ManifestPlanner
                 continue;
             }
 
+            if (shot.RevealAssets is { Count: > 0 } extraAssets)
+            {
+                // Build-up of separate images: every image must exist.
+                var sources = new List<string>();
+                var anyMissing = false;
+                foreach (var extraId in extraAssets)
+                {
+                    if (assetsByAssetId.TryGetValue(extraId, out var extraAsset) &&
+                        imagesByFileName.TryGetValue(extraAsset.File, out var extraImage) && extraImage.Width > 0)
+                    {
+                        sources.Add(extraImage.FilePath);
+                    }
+                    else
+                    {
+                        anyMissing = true;
+                        missingAssets.Add(
+                            $"Asset \"{extraId}\" (file \"images/{(assetsByAssetId.TryGetValue(extraId, out var known) ? known.File : extraId)}\") " +
+                            $"is missing — generate it.\n  Used by reveal shot {shot.ShotId} (images appear one after another)");
+                    }
+                }
+
+                if (anyMissing)
+                {
+                    AbsorbDrop(planned, shot, durationMs, ref pendingDropMs);
+                    continue;
+                }
+
+                revealSources[shot.ShotId] = sources;
+            }
+
             if (shot.EndMs <= shot.StartMs)
             {
                 issues.Add(new ValidationIssue(
@@ -142,7 +173,7 @@ public static class ManifestPlanner
         // Quantize to frames, hold narration pauses on the previous shot (tiling, like
         // the v1 scene inference), and pin the tail to the audio length.
         var clips = new List<(VideoClip Clip, VisualAsset Asset)>();
-        var reveals = new Dictionary<VideoClip, IReadOnlyList<long>>();
+        var reveals = new Dictionary<VideoClip, RevealPlan>();
         long cursor = 0;
         for (var i = 0; i < planned.Count; i++)
         {
@@ -211,7 +242,10 @@ public static class ManifestPlanner
                 }
                 else
                 {
-                    reveals[clip] = revealAt;
+                    reveals[clip] = new RevealPlan(
+                        revealAt,
+                        RevealLayouts.Normalize(shot.RevealLayout),
+                        revealSources.GetValueOrDefault(shot.ShotId));
                 }
             }
 
@@ -303,6 +337,7 @@ public static class ManifestPlanner
             },
         };
         var finalClips = ExpandReveals(clips.Select(c => c.Clip).ToList(), reveals, fps, options, issues);
+        timeline.Sounds.AddRange(BuildSounds(finalClips, planned.Select(p => p.Shot)));
         foreach (var group in finalClips.GroupBy(c => c.SceneId))
         {
             timeline.Scenes.Add(new Scene
@@ -328,7 +363,7 @@ public static class ManifestPlanner
     /// its slice as well, so the slice layout never changes.
     /// </summary>
     private static List<VideoClip> ExpandReveals(
-        List<VideoClip> clips, Dictionary<VideoClip, IReadOnlyList<long>> reveals,
+        List<VideoClip> clips, Dictionary<VideoClip, RevealPlan> reveals,
         double fps, ProjectOptions options, List<ValidationIssue> issues)
     {
         if (reveals.Count == 0)
@@ -339,13 +374,33 @@ public static class ManifestPlanner
         var result = new List<VideoClip>();
         foreach (var clip in clips)
         {
-            if (!reveals.TryGetValue(clip, out var atMs))
+            if (!reveals.TryGetValue(clip, out var plan))
             {
                 result.Add(clip);
                 continue;
             }
 
+            var atMs = plan.AtMs;
             var count = atMs.Count;
+            var layout = plan.Layout;
+            if (layout == RevealLayouts.Grid && count != 4)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "REVEAL_GRID_NEEDS_FOUR",
+                    $"Shot \"{clip.ShotId}\": a grid reveal needs exactly 4 items; using a row instead."));
+                layout = RevealLayouts.Row;
+            }
+
+            if (plan.Sources is { } given && given.Count != count)
+            {
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Warning, "REVEAL_ASSETS_COUNT",
+                    $"Shot \"{clip.ShotId}\": {given.Count} images for {count} reveal cues; the reveal was ignored."));
+                result.Add(clip);
+                continue;
+            }
+
+            var sources = plan.Sources;
             // (offset from the clip start, slices visible)
             var steps = new List<(long Offset, int Visible)> { (0, 1) };
             for (var k = 2; k <= count; k++)
@@ -377,7 +432,9 @@ public static class ManifestPlanner
                 var end = j + 1 < steps.Count ? steps[j + 1].Offset : clip.DurationFrames;
                 var step = new VideoClip
                 {
-                    FilePath = RevealPaths.StepPath(clip.FilePath, steps[j].Visible, count),
+                    FilePath = sources is not null
+                        ? RevealPaths.StackPath(sources, steps[j].Visible, layout)
+                        : RevealPaths.StepPath(clip.FilePath, steps[j].Visible, count, layout),
                     SceneId = clip.SceneId,
                     ShotId = j == 0 ? clip.ShotId : $"{clip.ShotId}.{steps[j].Visible}",
                     StartFrame = clip.StartFrame + offset,
@@ -390,6 +447,15 @@ public static class ManifestPlanner
                     EndViewport = clip.EndViewport,
                     MotionDurationFrames = clip.MotionDurationFrames,
                     Transition = clip.Transition,
+                    Reveal = new RevealInfo
+                    {
+                        Layout = layout,
+                        Count = count,
+                        Visible = steps[j].Visible,
+                        BaseShotId = clip.ShotId,
+                        SourcePath = sources is null ? clip.FilePath : null,
+                        Sources = sources is null ? new List<string>() : sources.ToList(),
+                    },
                 };
                 if (j > 0)
                 {
@@ -405,6 +471,40 @@ public static class ManifestPlanner
         }
 
         return result;
+    }
+
+    private sealed record RevealPlan(IReadOnlyList<long> AtMs, string Layout, List<string>? Sources);
+
+    /// <summary>
+    /// Sound effects: a normal shot plays its first sfx when it starts; a reveal shot plays one
+    /// per step that appears (a single name plays at every step, a list gives one per item and
+    /// repeats its last name).
+    /// </summary>
+    private static List<SoundEffect> BuildSounds(IReadOnlyList<VideoClip> clips, IEnumerable<VisualShot> shots)
+    {
+        var byShot = shots
+            .Where(s => s.Sfx is { Count: > 0 })
+            .GroupBy(s => s.ShotId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Sfx!, StringComparer.Ordinal);
+        var sounds = new List<SoundEffect>();
+        if (byShot.Count == 0)
+        {
+            return sounds;
+        }
+
+        foreach (var clip in clips)
+        {
+            var id = clip.Reveal?.BaseShotId ?? clip.ShotId;
+            if (id is null || !byShot.TryGetValue(id, out var names))
+            {
+                continue;
+            }
+
+            var index = clip.Reveal is { } reveal ? Math.Min(reveal.Visible - 1, names.Count - 1) : 0;
+            sounds.Add(new SoundEffect { Name = names[index], StartFrame = clip.StartFrame });
+        }
+
+        return sounds;
     }
 
     private static void AbsorbDrop(

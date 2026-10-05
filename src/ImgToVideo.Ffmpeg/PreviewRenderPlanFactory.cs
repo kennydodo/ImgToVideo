@@ -95,7 +95,8 @@ public static class PreviewRenderPlanFactory
             ConcatListContent: BuildConcatList(segments),
             ConcatArguments: BuildConcatArguments(Path.Combine(outputDirectory, "concat.txt"), roughPath),
             RoughPath: roughPath,
-            MuxArguments: BuildMuxArguments(roughPath, timeline.Audio.FilePath, previewPath),
+            MuxArguments: BuildMuxArguments(
+                roughPath, timeline.Audio.FilePath, previewPath, timeline.Sounds, timeline.Fps),
             PreviewPath: previewPath,
             TotalFrames: totalFrames);
     }
@@ -887,23 +888,67 @@ public static class PreviewRenderPlanFactory
             roughPath,
         };
 
-    private static IReadOnlyList<string> BuildMuxArguments(
-        string roughPath, string audioPath, string previewPath) =>
-        new List<string>
+    /// <summary>Gain applied to every sound effect so it sits under the narration.</summary>
+    private const double SoundGain = 0.8;
+
+    public static IReadOnlyList<string> BuildMuxArguments(
+        string roughPath, string audioPath, string previewPath,
+        IReadOnlyList<SoundEffect>? sounds = null, double fps = 30)
+    {
+        var usable = (sounds ?? [])
+            .Where(sound => !string.IsNullOrWhiteSpace(sound.FilePath))
+            .OrderBy(sound => sound.StartFrame)
+            .ToList();
+        var args = new List<string>
         {
             "-hide_banner",
             "-loglevel", "error",
             "-y",
             "-i", roughPath,
             "-i", audioPath,
+        };
+        if (usable.Count == 0)
+        {
+            args.AddRange(new[]
+            {
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                previewPath,
+            });
+            return args;
+        }
+
+        // Narration plus each sound delayed to its frame, mixed at full level (no auto-normalising).
+        const string common = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo";
+        var graph = new List<string> { $"[1:a]{common}[n]" };
+        var labels = new StringBuilder("[n]");
+        for (var i = 0; i < usable.Count; i++)
+        {
+            args.Add("-i");
+            args.Add(usable[i].FilePath);
+            var delayMs = (long)Math.Round(usable[i].StartFrame * 1000.0 / fps);
+            graph.Add($"[{i + 2}:a]{common},adelay={delayMs}:all=1,volume={F(SoundGain)}[s{i}]");
+            labels.Append($"[s{i}]");
+        }
+
+        graph.Add($"{labels}amix=inputs={usable.Count + 1}:duration=first:dropout_transition=0:normalize=0[aout]");
+        args.AddRange(new[]
+        {
+            "-filter_complex", string.Join(";", graph),
             "-map", "0:v:0",
-            "-map", "1:a:0",
+            "-map", "[aout]",
             "-c:v", "copy",
             "-c:a", "aac",
             "-b:a", "192k",
             "-shortest",
             previewPath,
-        };
+        });
+        return args;
+    }
 
     private static string F(double value) => value.ToString("0.######", CultureInfo.InvariantCulture);
 }
