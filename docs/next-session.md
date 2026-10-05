@@ -550,3 +550,5 @@ Visual manifest pipeline (v2 planner) + hardware encoder option implemented
   PreviewRenderService fingerprints each segment (ffmpeg args + input image
   size/mtime) into out\render\render-manifest.json; BUILD PREVIEW and RENDER
   FINAL skip unchanged segments, always re-run concat + narration mux.
+
+- **Reveal sound:** the built-in `pop` sound effect is not liked; replace or retune it (the other built-ins are unchanged). Raised 2026-10-06, for the next session.
