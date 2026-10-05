@@ -2,6 +2,37 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-10-05 — QUEUE: slide-in reveal (agreed, not started) + open items
+
+**Slide-in reveal (requested by Kehinde and his brother).** With 3-4 items to reveal, each item
+slides into its own slot, one after another, while the items already placed stay put. Direction is a
+**per-channel setting** (right / left / top / bottom, plus "off" = today's cut).
+Design agreed on: keep the existing reveal step stills; before each new item appears, a short slide
+(~0.4 s) of that item over the previous step's still, then the main still switches to the next step
+so the cut is invisible. The new item is its own full-canvas RGBA PNG (only that item, in its slot,
+rest transparent) on a layer above the main picture, moving with Position keyframes (eased).
+Needed in: `ManifestPlanner.ExpandReveals` (slide overlay clips + shifted switch point), `RevealImageWriter`
+(RGBA item PNGs), the preview renderer (ffmpeg overlay with an animated position), Premiere
+(`Fcp7XmlExporter`, extra video track), CapCut (extra track + keyframes), the WhisperRadar channel setting
+and the shotlist brief wording. Build order: planner + settings, preview, Premiere, CapCut.
+**Blocked on:** Premiere ignores Position keyframes today (PU/PD/PL/PR clips are static in Premiere; the
+exported `premiere.xml` does contain them, in pixels relative to the frame centre). Kehinde is fixing that on
+his laptop - build the slide on whatever keyframe form that fix proves Premiere accepts.
+
+**Open items**
+- Reveal "required" level (WhisperRadar channel setting, `2e9d3a2`): check on a real re-plan that the
+  list passages now carry a `reveal` field. If a model still skips them, add a post-plan check that flags a
+  listed passage planned as an ordinary shot.
+- WhisperRadar Section 6B (presentation) says it does not change any other rule, so "No INF and HYB"-style
+  rules there may be ignored by Section 5. Make the presentation text override Section 5 (and 8) if INF/HYB
+  still appear. This also changes the copy-paste planner prompt - ask first.
+- Idea, not built: after a FlowBatch "too many cards failed in a row" stop, run a second gallery recovery
+  after the pause (before re-rendering) so cards Flow finished during the pause are not paid for twice.
+- PU/PD/PL/PR jitter in the preview is clip-specific (planning and render code treat PU and PD as mirrors);
+  left as is. If a pattern shows up, check that clip's image size and planned positions.
+- `reveal-effect` is still unmerged in both repos; `master` in WhisperRadar carries the fix loop, the Start over
+  fix, the Clear-all/temperature fix and the Flow gallery recovery (none pushed).
+
 ## 2026-09-30 — TODO: finish this branch (6 failing tests) + add Flow-native 1376×768 as a selectable preset
 
 Tested `feat/per-shot-aspect-ratio` (tip 51ed32a) in a worktree:
