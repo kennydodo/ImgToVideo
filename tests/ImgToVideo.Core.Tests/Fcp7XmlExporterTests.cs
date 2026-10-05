@@ -76,7 +76,7 @@ public class Fcp7XmlExporterTests
     private static (string When, string Horiz, string Vert)[] CenterKeyframes(XElement clipItem)
     {
         var parameter = clipItem.Descendants("parameter")
-            .First(p => (string?)p.Element("parameterid") == "position");
+            .First(p => (string?)p.Element("parameterid") == "center");
         return parameter.Elements("keyframe")
             .Select(k => (
                 (string?)k.Element("when") ?? "",
@@ -177,12 +177,12 @@ public class Fcp7XmlExporterTests
         Assert.Equal(6, scale.Length);
         Assert.All(scale, k => Assert.Equal("100", k.Value));
 
-        // Center is relative to the frame center: the viewport pans right,
-        // so the image slides left from +480 to -480.
+        // Center is media-size-relative: the viewport pans right, so the
+        // image slides left from +480/2880 to -480/2880 native units.
         var center = CenterKeyframes(clipItem);
         Assert.Equal(6, center.Length);
-        Assert.Equal(("0", "480", "0"), center[0]);
-        Assert.Equal(("89", "-480", "0"), center[^1]);
+        Assert.Equal(("0", "0.166667", "0"), center[0]);
+        Assert.Equal(("89", "-0.166667", "0"), center[^1]);
         var horiz = center.Select(k => double.Parse(k.Horiz, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
         Assert.Equal(horiz, horiz.OrderByDescending(v => v).ToArray());
     }
