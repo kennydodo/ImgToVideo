@@ -160,6 +160,24 @@ S01_02_CU_ST.png [2304x1296] — <prompt> · refs: david_face
 
 Group by main beat, in beat order. One line per image: filename, canvas, prompt — append `· refs: name1, name2` ONLY when the image entry carries refs (names, in the same order as the JSON). Every image in the JSON appears here exactly once.
 
+## SECTION 7B — REVEAL SHOTS (optional — include only when you want them)
+
+A reveal shot shows 2–4 parallel items as the narrator names them: the first item is on screen alone, the second appears when the narration reaches it, then the third. It is ONE image holding the items in a left-to-right row, each in its own equal-width slice (2 items = halves, 3 = thirds, 4 = quarters). The assembler cuts the image along those slice lines and reveals the slices in order, so the layout has to be exact.
+
+Use it only when ONE passage of the narration walks through 2–4 parallel things one after another (three causes, two options, four steps) and each deserves its own beat on screen. It is a rare tool — at most about 10% of the shots; everything else stays a normal shot. When in doubt, do not use it.
+
+Add `"reveal": [c1, c2, c3]` to the shot: the SRT cue at which each item is first named — one cue per item, strictly increasing, all inside the shot's own `cues`, the first equal to the shot's first cue. Item 1 is the leftmost slice, item 2 the next, and so on, in narration order.
+
+Rules for a reveal shot:
+- It never moves: `"motion": "ST"` and the asset file name ends with the ST code. The ST share and ST hold limits above do not apply to it; the channel's normal maximum hold does.
+- Its image prompt must state the item count, name each item in left-to-right order and put every item in its own slice, e.g. "three separate items in a row, left to right: A, B, C, each centered in its own equal third of the frame".
+- Keep clear empty space between neighbouring slices. Nothing may cross a vertical slice line — no object, shadow, floor line, glow, arrow, prop or text — and no item may lean into a neighbour's slice.
+- One plain, identical background and the same lighting, scale and ground line across all slices, so the slices that are still hidden leave no visible gap or mismatch.
+- No character, hand or object may appear in more than one slice, and an item must not need another item to make sense.
+- A reveal image cannot be fixed afterwards: the slices are cut by pixels. If the items cannot be laid out cleanly in equal slices, plan normal shots instead.
+
+Final check for every reveal shot, before you output: the `reveal` list has one cue per item, increasing, starting at the shot's first cue and inside its `cues`; `motion` is ST and the file name ends with _ST; the prompt states the item count, names the items left to right in narration order, keeps each in its own equal slice and forbids anything crossing a slice line; and reveal shots are no more than about 10% of all shots.
+
 ## SECTION 8 — TEXT INSIDE IMAGES
 
 Follow the supplied channel text policy. If the project says no generated text: no readable words, numbers, labels, percentages, titles, captions, letters, or signage. Communicate through icons, arrows, shapes, pictograms, relative size, grouping, quantity, and visual metaphor.
