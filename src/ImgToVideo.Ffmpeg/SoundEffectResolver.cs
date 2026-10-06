@@ -13,7 +13,7 @@ public static class SoundEffectResolver
 
     public static async Task<IReadOnlyList<ValidationIssue>> ResolveAsync(
         Timeline timeline, string projectDir, FfmpegRunner runner, Ffprobe probe,
-        CancellationToken cancellationToken = default)
+        string? defaultPop = null, CancellationToken cancellationToken = default)
     {
         var issues = new List<ValidationIssue>();
         if (timeline.Sounds.Count == 0)
@@ -27,7 +27,7 @@ public static class SoundEffectResolver
         {
             if (!files.TryGetValue(sound.Name, out var found))
             {
-                found = await ResolveOneAsync(sound.Name, timeline.Fps, projectDir, runner, probe, issues, cancellationToken);
+                found = await ResolveOneAsync(sound.Name, timeline.Fps, projectDir, runner, probe, defaultPop, issues, cancellationToken);
                 files[sound.Name] = found;
             }
 
@@ -48,10 +48,10 @@ public static class SoundEffectResolver
 
     private static async Task<(string Path, long Frames)?> ResolveOneAsync(
         string name, double fps, string projectDir, FfmpegRunner runner, Ffprobe probe,
-        List<ValidationIssue> issues, CancellationToken cancellationToken)
+        string? defaultPop, List<ValidationIssue> issues, CancellationToken cancellationToken)
     {
         var path = SoundEffectLibrary.FindProjectFile(projectDir, name)
-                   ?? await SoundEffectLibrary.EnsureBuiltInAsync(projectDir, name, runner, cancellationToken);
+                   ?? await SoundEffectLibrary.EnsureBuiltInAsync(projectDir, name, runner, defaultPop, cancellationToken);
         if (path is null)
         {
             issues.Add(new ValidationIssue(

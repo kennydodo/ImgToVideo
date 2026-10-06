@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
+using ImgToVideo.Ffmpeg;
 
 namespace ImgToVideo.App;
 
@@ -41,6 +42,7 @@ public partial class SettingsWindow : Window
         LoadOutput();
         LoadSceneInference();
         LoadRender();
+        LoadSound();
     }
 
     private void LoadPlanning()
@@ -134,6 +136,60 @@ public partial class SettingsWindow : Window
     {
         TxtSentenceGap.Text = F(Options.SceneInference.SentenceGapSeconds);
         TxtTerminalGap.Text = F(Options.SceneInference.TerminalPunctuationGapSeconds);
+    }
+
+    private void LoadSound()
+    {
+        CmbDefaultPop.ItemsSource = SoundCatalog.PopVariants
+            .Select(v => new PopChoice(v.Id, v.Label))
+            .ToList();
+        CmbDefaultPop.SelectedValue = SoundCatalog.IsPopVariant(Options.Sound.DefaultPop)
+            ? Options.Sound.DefaultPop
+            : SoundCatalog.DefaultPopId;
+    }
+
+    private sealed record PopChoice(string Id, string Label);
+
+    private void BtnResetSound_Click(object sender, RoutedEventArgs e)
+    {
+        Options.Sound = new SoundOptions();
+        LoadSound();
+    }
+
+    /// <summary>Renders the selected sound to a temp file with ffmpeg and plays it, so a choice can be auditioned.</summary>
+    private async void BtnPlayPop_Click(object sender, RoutedEventArgs e)
+    {
+        if (CmbDefaultPop.SelectedValue is not string id)
+        {
+            return;
+        }
+
+        BtnPlayPop.IsEnabled = false;
+        try
+        {
+            var path = Path.Combine(Path.GetTempPath(), "ImgToVideo-" + id + ".wav");
+            var args = SoundEffectLibrary.BuildArguments(id, path);
+            var runner = new ImgToVideo.Ffmpeg.FfmpegRunner(
+                TxtFfmpegPath.Text.Length > 0 ? TxtFfmpegPath.Text : Options.Render.FfmpegPath);
+            var result = await runner.RunAsync(args!);
+            if (!result.Success || !File.Exists(path))
+            {
+                TxtPopStatus.Text = "Could not generate the sound - is ffmpeg available? (see Render & tools)";
+                return;
+            }
+
+            using var player = new System.Media.SoundPlayer(path);
+            player.Load();
+            player.Play();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            TxtPopStatus.Text = "Could not play the sound: " + ex.Message;
+        }
+        finally
+        {
+            BtnPlayPop.IsEnabled = true;
+        }
     }
 
     private void LoadRender()
@@ -320,6 +376,10 @@ public partial class SettingsWindow : Window
         var next = new ProjectOptions
         {
             Planner = CmbPlanner.SelectedItem as string ?? Options.Planner,
+            Sound = new SoundOptions
+            {
+                DefaultPop = CmbDefaultPop.SelectedValue as string ?? Options.Sound.DefaultPop,
+            },
 
             Timing = new TimingOptions
             {

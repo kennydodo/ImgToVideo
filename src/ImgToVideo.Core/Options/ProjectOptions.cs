@@ -16,6 +16,7 @@ public sealed class ProjectOptions
     public RenderOptions Render { get; set; } = new();
     public SceneInferenceOptions SceneInference { get; set; } = new();
     public ShotlistOptions Shotlist { get; set; } = new();
+    public SoundOptions Sound { get; set; } = new();
 
     /// <summary>"v1" = scene-inference planner, "v2" = visual_manifest.json shots.
     /// v2 is the default; projects without a manifest still plan via v1 inference.</summary>
@@ -109,6 +110,11 @@ public sealed class ProjectOptions
         if (sl.MasterPromptMaxChars < 0 || sl.PromptMaxChars < 0)
         {
             errors.Add("Shotlist prompt limits must not be negative (0 disables a limit).");
+        }
+
+        if (!SoundCatalog.IsPopVariant(Sound.DefaultPop))
+        {
+            errors.Add($"Unknown default pop sound \"{Sound.DefaultPop}\".");
         }
 
         var r = Render;

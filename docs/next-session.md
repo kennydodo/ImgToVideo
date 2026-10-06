@@ -2,6 +2,21 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-10-06 - pop sound: 13 variants + selectable default (UNBUILT / UNTESTED - no dotnet in the authoring sandbox)
+
+The unloved built-in `pop` is now a family of 13 synthesized variants (`SoundCatalog.PopVariants`,
+recipes in `SoundEffectLibrary`, peaks levelled to about -3 dB): bubble, boop, drop, blip, tap, snap, cork,
+thump, pluck, marimba, ping, sparkle, classic (= the old pop).
+- New project option `sound.default_pop` (`SoundOptions`, default `pop_bubble` - a blind pick, change it freely).
+  A shotlist's `"sfx": "pop"` plays that variant (`SoundEffectLibrary.ResolveAlias`); the brief is unchanged.
+  Each variant is also usable by name (`"sfx": "pop_marimba"`). A `pop.wav` in the project's `sfx\` folder still wins.
+- Settings > Sound: dropdown + Play (renders the sound with ffmpeg to temp and plays it) + section Reset.
+- `SoundEffectResolver.ResolveAsync` gained `defaultPop` (both call sites pass `Options.Sound.DefaultPop`).
+- Cache: files are `out\sfx\<variant>.wav`, so switching the default needs no cache clearing.
+- TODO: `dotnet build` + `dotnet test` (3 new tests in RevealTests), listen to all 13, maybe a personal
+  "Save as my default" like Resolution/Motion. Note: `BtnSave_Click` rebuilds ProjectOptions without
+  carrying `Shotlist`, so saving Settings resets the prompt limits to defaults (pre-existing).
+
 ## 2026-10-05 — QUEUE: slide-in reveal (agreed, not started) + open items
 
 **Slide-in reveal (requested by Kehinde and his brother).** With 3-4 items to reveal, each item

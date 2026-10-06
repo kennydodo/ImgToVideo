@@ -521,4 +521,38 @@ public class RevealTests
         Assert.True(!SoundEffectLibrary.IsBuiltIn("nonsense"));
         Assert.NotNull(SoundEffectLibrary.BuildArguments("ding", "o.wav"));
     }
+
+    [Fact]
+    public void Every_catalog_pop_variant_has_a_recipe()
+    {
+        Assert.True(SoundCatalog.PopVariants.Count >= 10);
+        foreach (var (id, _) in SoundCatalog.PopVariants)
+        {
+            Assert.True(SoundEffectLibrary.IsBuiltIn(id), id);
+            Assert.NotNull(SoundEffectLibrary.BuildArguments(id, "o.wav"));
+        }
+    }
+
+    [Fact]
+    public void Pop_alias_follows_the_projects_default_pop_and_other_names_are_untouched()
+    {
+        Assert.Equal("pop_marimba", SoundEffectLibrary.ResolveAlias("Pop", "pop_marimba"));
+        Assert.Equal(SoundCatalog.DefaultPopId, SoundEffectLibrary.ResolveAlias("pop", null));
+        Assert.Equal(SoundCatalog.DefaultPopId, SoundEffectLibrary.ResolveAlias("pop", "nonsense"));
+        Assert.Equal("ding", SoundEffectLibrary.ResolveAlias("ding", "pop_marimba"));
+        Assert.Contains("aevalsrc", string.Join(" ", SoundEffectLibrary.BuildArguments("pop", "o.wav", "pop_blip")!));
+    }
+
+    [Fact]
+    public void Default_pop_setting_validates_and_round_trips()
+    {
+        var options = new ProjectOptions();
+        Assert.Empty(options.Validate().Where(e => e.Contains("pop", StringComparison.OrdinalIgnoreCase)));
+
+        options.Sound.DefaultPop = "pop_ping";
+        Assert.Empty(options.Validate().Where(e => e.Contains("pop", StringComparison.OrdinalIgnoreCase)));
+
+        options.Sound.DefaultPop = "nope";
+        Assert.Contains(options.Validate(), e => e.Contains("pop", StringComparison.OrdinalIgnoreCase));
+    }
 }

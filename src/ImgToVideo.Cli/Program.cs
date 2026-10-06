@@ -262,7 +262,8 @@ IReadOnlyList<ImageInfo> images = inventory.AllImages;
 
     // Sound effects named in the shotlist: look each up (project sfx\ folder, then the built-in pack).
     ReportIssues(await SoundEffectResolver.ResolveAsync(
-        planned.Timeline, folder, ffmpegForReveal, new Ffprobe(options.Render.FfprobePath)));
+        planned.Timeline, folder, ffmpegForReveal, new Ffprobe(options.Render.FfprobePath),
+        options.Sound.DefaultPop));
 }
 
 if (command == "export-premiere")

@@ -476,7 +476,8 @@ public partial class MainWindow : Window
         var soundIssues = await SoundEffectResolver.ResolveAsync(
             _planned.Timeline!, _projectFolder,
             new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(_options.Render)),
-            new Ffprobe(_options.Render.FfprobePath));
+            new Ffprobe(_options.Render.FfprobePath),
+            _options.Sound.DefaultPop);
         if (soundIssues.Count > 0)
         {
             UpdateIssues(_planned.Issues.Concat(soundIssues).ToList());

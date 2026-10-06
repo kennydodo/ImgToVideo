@@ -255,6 +255,29 @@
                     </UniformGrid>
                 </GroupBox>
 
+                <GroupBox Padding="8" Margin="0,0,0,8">
+                    <GroupBox.Header>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock Text="Sound"/>
+                            <Button Content="Reset" DockPanel.Dock="Right"
+                                    Style="{StaticResource SectionResetButton}"
+                                    Click="BtnResetSound_Click"/>
+                        </DockPanel>
+                    </GroupBox.Header>
+                    <StackPanel>
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Default pop sound" VerticalAlignment="Center"/>
+                            <DockPanel Margin="0,2,12,2">
+                                <Button x:Name="BtnPlayPop" Content="Play" DockPanel.Dock="Right" Padding="10,2" Margin="6,0,0,0"
+                                        Click="BtnPlayPop_Click"/>
+                                <ComboBox x:Name="CmbDefaultPop" DisplayMemberPath="Label" SelectedValuePath="Id"/>
+                            </DockPanel>
+                        </UniformGrid>
+                        <TextBlock x:Name="TxtPopStatus" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Text="Plays wherever the shotlist asks for &quot;pop&quot;. Every sound can also be named directly (e.g. pop_marimba). A pop.wav in the project's sfx folder overrides this."/>
+                    </StackPanel>
+                </GroupBox>
+
                 <GroupBox Padding="8">
                     <GroupBox.Header>
                         <DockPanel LastChildFill="False">
