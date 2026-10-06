@@ -13,7 +13,7 @@ public sealed class AppSettings
     /// <summary>
     /// The user's own permanent defaults, saved from the "Save as my
     /// default" button next to each Settings section (Output > Resolution,
-    /// Motion, Transitions). Null until the user ever saves one - new
+    /// Motion, Transitions, Sound). Null until the user ever saves one - new
     /// projects then keep falling back to that section's own built-in
     /// default (ProjectOptions' own values). This is a per-user preference
     /// (this file), not a per-project setting (imgtovideo.json) - it only
@@ -24,6 +24,7 @@ public sealed class AppSettings
     public int? DefaultOutputHeight { get; set; }
     public MotionOptions? DefaultMotion { get; set; }
     public TransitionOptions? DefaultTransitions { get; set; }
+    public string? DefaultPop { get; set; }
 }
 
 public static class AppSettingsStore

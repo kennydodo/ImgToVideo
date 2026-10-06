@@ -273,6 +273,14 @@
                                 <ComboBox x:Name="CmbDefaultPop" DisplayMemberPath="Label" SelectedValuePath="Id"/>
                             </DockPanel>
                         </UniformGrid>
+                        <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                            <Button x:Name="BtnSavePopDefault" Content="Save as my default"
+                                    DockPanel.Dock="Left"
+                                    ToolTip="Remember this pop sound as YOUR permanent default for new projects (not this project's setting - applies the next time you start a project with no imgtovideo.json yet)."
+                                    Click="BtnSavePopDefault_Click"/>
+                            <TextBlock x:Name="TxtPopDefaultStatus" DockPanel.Dock="Left"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
                         <TextBlock x:Name="TxtPopStatus" TextWrapping="Wrap" Margin="0,4,0,0"
                                    Text="Plays wherever the shotlist asks for &quot;pop&quot;. Every sound can also be named directly (e.g. pop_marimba). A pop.wav in the project's sfx folder overrides this."/>
                     </StackPanel>

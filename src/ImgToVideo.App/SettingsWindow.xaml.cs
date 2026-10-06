@@ -146,6 +146,30 @@ public partial class SettingsWindow : Window
         CmbDefaultPop.SelectedValue = SoundCatalog.IsPopVariant(Options.Sound.DefaultPop)
             ? Options.Sound.DefaultPop
             : SoundCatalog.DefaultPopId;
+        UpdatePopDefaultStatus();
+    }
+
+    private void UpdatePopDefaultStatus()
+    {
+        var saved = AppSettingsStore.Load().DefaultPop;
+        TxtPopDefaultStatus.Text = SoundCatalog.IsPopVariant(saved)
+            ? "Your default: " + SoundCatalog.PopVariants.First(v => string.Equals(v.Id, saved, StringComparison.OrdinalIgnoreCase)).Label
+            : "No personal default saved yet - new projects use " + SoundCatalog.DefaultPopId + ".";
+    }
+
+    // A personal preference (this user, this machine): written straight to AppSettings,
+    // independent of the dialog's Save/Cancel, and it only seeds a BRAND NEW project.
+    private void BtnSavePopDefault_Click(object sender, RoutedEventArgs e)
+    {
+        if (CmbDefaultPop.SelectedValue is not string id)
+        {
+            return;
+        }
+
+        var settings = AppSettingsStore.Load();
+        settings.DefaultPop = id;
+        AppSettingsStore.Save(settings);
+        UpdatePopDefaultStatus();
     }
 
     private sealed record PopChoice(string Id, string Label);

@@ -95,6 +95,10 @@ public partial class MainWindow : Window
                 {
                     seeded.Transitions = savedDefault.DefaultTransitions;
                 }
+                if (ImgToVideo.Core.Models.SoundCatalog.IsPopVariant(savedDefault.DefaultPop))
+                {
+                    seeded.Sound.DefaultPop = savedDefault.DefaultPop!;
+                }
 
                 try
                 {
