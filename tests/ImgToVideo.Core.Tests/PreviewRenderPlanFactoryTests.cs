@@ -61,7 +61,7 @@ public class PreviewRenderPlanFactoryTests : IDisposable
     }
 
     [Fact]
-    public void Pan_right_filter_travels_with_constant_zoom()
+    public void Pan_right_filter_moves_a_fixed_size_crop_over_a_supersampled_still()
     {
         var (timeline, images) = SampleTimeline();
         var plan = PreviewRenderPlanFactory.Build(
@@ -70,12 +70,14 @@ public class PreviewRenderPlanFactoryTests : IDisposable
 
         var vf = ArgumentAfter(plan.Segments[1].Arguments, "-vf");
 
+        // A pan keeps the viewport size, so it is a crop (not zoompan) on a 5x grid: 2880 -> 14400.
         Assert.Equal(
             "scale=14400:6480:flags=lanczos," +
-            "zoompan=z='min(1.5,max(1.5,14400/(9600+(0)*((on+0)/89))))'" +
-            ":x='min(max(0,(4800+(4800)*((on+0)/89))-iw/zoom/2),iw-iw/zoom)'" +
-            ":y='min(max(0,(3240+(0)*((on+0)/89))-ih/zoom/2),ih-ih/zoom)'" +
-            ":d=90:s=960x540:fps=30,format=yuv420p",
+            "loop=loop=89:size=1:start=0," +
+            "crop=w='9600':h='5400'" +
+            ":x='min(iw-ow,max(0,0+(4800)*((n+0)/89)))'" +
+            ":y='min(ih-oh,max(0,540+(0)*((n+0)/89)))'," +
+            "scale=960:540,format=yuv420p",
             vf);
     }
 
@@ -143,8 +145,10 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         Assert.Contains("xfade=transition=fade:duration=0.5:offset=0", filterComplex);
         Assert.Contains("[va]", filterComplex);
         Assert.Contains("[vb]", filterComplex);
+        // Outgoing clip is a zoom (zoompan, "on", starts 75 frames in); the incoming one is a pan (crop, "n").
         Assert.Contains("((on+75)/89)", filterComplex);
-        Assert.Contains("((on+0)/89)", filterComplex);
+        Assert.Contains("((n+0)/89)", filterComplex);
+        Assert.Contains("loop=loop=14:size=1:start=0", filterComplex);
         Assert.Contains("format=yuv420p", filterComplex);
         Assert.Contains("-frames:v", join.Arguments);
         Assert.Contains("15", join.Arguments);
@@ -259,7 +263,8 @@ public class PreviewRenderPlanFactoryTests : IDisposable
                 new System.Globalization.CultureInfo("de-DE");
 
             var imagePath = _project.WriteImage("S01_01.png", 2304, 1296);
-            var timeline = SingleClipTimeline(imagePath, 1, viewport: new Rect(0, 0, 1921, 1081));
+            // Fixed-size viewport -> crop path; 6x grid makes the crop width 6 * 1920.25 = 11521.5.
+            var timeline = SingleClipTimeline(imagePath, 1, viewport: new Rect(0, 0, 1920.25, 1080.1875));
             var images = new List<ImageInfo>
             {
                 new(imagePath, new ParsedImageName("S01_01", 1, 1, null, false), 2304, 1296),
@@ -270,13 +275,58 @@ public class PreviewRenderPlanFactoryTests : IDisposable
                 System.IO.Path.Combine(_project.Path, "out", "preview.mp4"));
 
             var vf = ArgumentAfter(plan.Segments[0].Arguments, "-vf");
-            Assert.Contains("z='1.199375'", vf);
-            Assert.DoesNotContain("1,199375", vf);
+            Assert.Contains("crop=w='11521.5'", vf);
+            Assert.Contains("h='6481.125'", vf);
+            Assert.DoesNotContain("11521,5", vf);
         }
         finally
         {
             System.Globalization.CultureInfo.CurrentCulture = originalCulture;
         }
+    }
+
+    [Theory]
+    [InlineData("ultrafast")]
+    [InlineData("superfast")]
+    [InlineData("veryfast")]
+    [InlineData("faster")]
+    [InlineData("fast")]
+    [InlineData("medium")]
+    [InlineData("slow")]
+    [InlineData("slower")]
+    [InlineData("veryslow")]
+    [InlineData("nonsense")]
+    public void Every_libx264_preset_maps_to_a_value_each_hardware_encoder_accepts(string preset)
+    {
+        // h264_qsv rejects libx264's ultrafast/superfast ("Unable to parse preset option value"),
+        // which failed every preview render on Intel QSV machines.
+        var qsv = ArgumentAfter(PreviewRenderPlanFactory.VideoEncoderArgs("h264_qsv", preset, 28, 0), "-preset");
+        Assert.Contains(qsv, new[] { "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow" });
+
+        var nvenc = ArgumentAfter(PreviewRenderPlanFactory.VideoEncoderArgs("h264_nvenc", preset, 28, 0), "-preset");
+        Assert.Matches("^p[1-7]$", nvenc);
+
+        var amf = ArgumentAfter(PreviewRenderPlanFactory.VideoEncoderArgs("h264_amf", preset, 28, 0), "-quality");
+        Assert.Contains(amf, new[] { "speed", "balanced", "quality" });
+    }
+
+    [Fact]
+    public void Libx264_keeps_the_preset_and_crf_as_given()
+    {
+        var args = PreviewRenderPlanFactory.VideoEncoderArgs("libx264", "ultrafast", 23, 0);
+
+        Assert.Equal("ultrafast", ArgumentAfter(args, "-preset"));
+        Assert.Equal("23", ArgumentAfter(args, "-crf"));
+        Assert.Equal("0", ArgumentAfter(args, "-bf"));
+    }
+
+    [Fact]
+    public void Explicit_cpu_encoder_resolves_without_probing_hardware()
+    {
+        var options = Options();
+        options.Render.Encoder = "cpu";
+
+        Assert.Equal("libx264", PreviewRenderPlanFactory.ResolveEncoder(options.Render));
     }
 
     private static ProjectOptions Options()
@@ -286,6 +336,8 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         options.Render.PreviewHeight = 540;
         options.Render.PreviewPreset = "veryfast";
         options.Render.PreviewCrf = 28;
+        // "auto" probes this machine's GPU, so the asserted arguments would differ per machine.
+        options.Render.Encoder = "libx264";
         return options;
     }
 

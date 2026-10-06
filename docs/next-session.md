@@ -2,6 +2,22 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-10-06 - FIXED (unbuilt, untested): the 6 failing tests + QSV preset + Settings save bug
+
+`feat/per-shot-aspect-ratio` was already merged into master, so this is on master. Not run: no dotnet in the authoring sandbox - run `dotnet test` and report.
+- **Real bug (QSV):** `QsvPreset` passed libx264's `ultrafast`/`superfast` to `h264_qsv`, which rejects them. They now map to `veryfast`.
+  `EncoderProbe.Verify` now probes with the exact `VideoEncoderArgs` a render uses (fastest preset, B-frames), so an
+  encoder that opens with defaults but rejects the real options is no longer selected. Theory test: every libx264 preset
+  maps to a value each hardware encoder accepts.
+- **Stale tests:** `Options()` now pins `Encoder = "libx264"` (the "auto" default made the asserted args depend on the
+  machine's GPU). Pan-right is now a `crop` on a 5x grid (a pan keeps the viewport size, so it is no longer `zoompan`),
+  the join test expects `n` (crop) for the incoming pan and a `loop=loop=14` stage, and the culture test uses a fractional
+  fixed-size viewport (crop width 11521.5) instead of the old zoompan `z=`.
+- **Settings save bug:** the dialog rebuilt `ProjectOptions` without the shotlist prompt limits, resetting them on every Save.
+  `ProjectOptions.KeepSectionsNotEditedInSettings(previous)` carries them over (tested). `SoundOptions.ApplyPersonalDefault`
+  holds the "seed a new project from my saved pop" rule so it is testable (the App project has no test project).
+- Still no test for the WPF-only parts (Settings Sound section, Play button, AppSettings.DefaultPop persistence).
+
 ## 2026-10-06 - pop sound: 13 variants + selectable default (UNBUILT / UNTESTED - no dotnet in the authoring sandbox)
 
 The unloved built-in `pop` is now a family of 13 synthesized variants (`SoundCatalog.PopVariants`,
@@ -48,7 +64,7 @@ his laptop - build the slide on whatever keyframe form that fix proves Premiere 
 - `reveal-effect` is still unmerged in both repos; `master` in WhisperRadar carries the fix loop, the Start over
   fix, the Clear-all/temperature fix and the Flow gallery recovery (none pushed).
 
-## 2026-09-30 — TODO: finish this branch (6 failing tests) + add Flow-native 1376×768 as a selectable preset
+## 2026-09-30 — (FIXED 2026-10-06, see above) finish this branch (6 failing tests) + add Flow-native 1376×768 as a selectable preset
 
 Tested `feat/per-shot-aspect-ratio` (tip 51ed32a) in a worktree:
 `dotnet test tests/ImgToVideo.Core.Tests` → **261 pass, 6 FAIL**; all 6 PASS on

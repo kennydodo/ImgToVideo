@@ -454,6 +454,8 @@ public partial class SettingsWindow : Window
             },
         };
 
+        next.KeepSectionsNotEditedInSettings(Options);
+
         var errors = next.Validate();
         if (errors.Count > 0)
         {

@@ -22,6 +22,17 @@ public sealed class ProjectOptions
     /// v2 is the default; projects without a manifest still plan via v1 inference.</summary>
     public string Planner { get; set; } = "v2";
 
+    /// <summary>
+    /// The Settings dialog rebuilds ProjectOptions from its fields; sections it has no fields for
+    /// (the shotlist prompt limits) must come from the options it started with, or every Save
+    /// silently resets them to defaults.
+    /// </summary>
+    public ProjectOptions KeepSectionsNotEditedInSettings(ProjectOptions previous)
+    {
+        Shotlist = previous.Shotlist;
+        return this;
+    }
+
     public List<string> Validate()
     {
         var errors = new List<string>();

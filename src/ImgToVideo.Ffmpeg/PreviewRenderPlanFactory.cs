@@ -596,10 +596,12 @@ public static class PreviewRenderPlanFactory
         _ => "p5",
     };
 
+    // h264_qsv only knows veryfast..veryslow; it rejects libx264's "ultrafast"/"superfast"
+    // ("Unable to parse preset option value") and the whole segment fails.
     private static string QsvPreset(string preset) => preset.ToLowerInvariant() switch
     {
-        "ultrafast" or "superfast" or "veryfast" or "faster" or "fast" => preset.ToLowerInvariant(),
-        "slow" or "slower" or "veryslow" => preset.ToLowerInvariant(),
+        "ultrafast" or "superfast" or "veryfast" => "veryfast",
+        "faster" or "fast" or "medium" or "slow" or "slower" or "veryslow" => preset.ToLowerInvariant(),
         _ => "medium",
     };
 

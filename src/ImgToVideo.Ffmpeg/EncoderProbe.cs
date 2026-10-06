@@ -42,16 +42,20 @@ public static class EncoderProbe
     {
         try
         {
+            // Probe with the exact arguments a render would use (preset mapping, B-frames),
+            // not just "-c:v <encoder>": an encoder that opens with defaults but rejects the
+            // render's real options would otherwise pass here and fail every segment.
+            var arguments = new List<string>
+            {
+                "-hide_banner",
+                "-f", "lavfi",
+                "-i", "color=black:s=64x64:d=0.1",
+                "-frames:v", "1",
+            };
+            arguments.AddRange(PreviewRenderPlanFactory.VideoEncoderArgs(encoder, "ultrafast", 28, 0));
+            arguments.AddRange(["-f", "null", "-"]);
             var result = new FfmpegRunner(ffmpegPath)
-                .RunAsync([
-                    "-hide_banner",
-                    "-f", "lavfi",
-                    "-i", "color=black:s=64x64:d=0.1",
-                    "-frames:v", "1",
-                    "-c:v", encoder,
-                    "-f", "null",
-                    "-",
-                ])
+                .RunAsync(arguments)
                 .GetAwaiter()
                 .GetResult();
             return result.Success;
