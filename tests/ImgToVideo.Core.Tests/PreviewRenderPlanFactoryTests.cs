@@ -112,11 +112,14 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         Assert.Equal(180, plan.TotalFrames);
 
         Assert.EndsWith("seg_0001.mp4", plan.Segments[0].OutputPath);
-        Assert.Equal(75, plan.Segments[0].FrameCount);
+        // "Start at cut": the outgoing clip keeps its full duration (it holds its
+        // final framing across the join afterwards), the second clip's head plays
+        // inside the join and its own segment resumes at frame 15 of its motion.
+        Assert.Equal(90, plan.Segments[0].FrameCount);
         Assert.EndsWith("join_0001.mp4", plan.Segments[1].OutputPath);
         Assert.Equal(15, plan.Segments[1].FrameCount);
         Assert.EndsWith("seg_0002.mp4", plan.Segments[2].OutputPath);
-        Assert.Equal(90, plan.Segments[2].FrameCount);
+        Assert.Equal(75, plan.Segments[2].FrameCount);
 
         var listIndex1 = plan.ConcatListContent.IndexOf(plan.Segments[0].OutputPath, StringComparison.Ordinal);
         var listIndex2 = plan.ConcatListContent.IndexOf(plan.Segments[1].OutputPath, StringComparison.Ordinal);
@@ -145,9 +148,11 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         Assert.Contains("xfade=transition=fade:duration=0.5:offset=0", filterComplex);
         Assert.Contains("[va]", filterComplex);
         Assert.Contains("[vb]", filterComplex);
-        // Outgoing clip is a zoom (zoompan, "on", starts 75 frames in); the incoming one is a pan (crop, "n").
-        Assert.Contains("((on+75)/89)", filterComplex);
-        Assert.Contains("((n+0)/89)", filterComplex);
+        // Outgoing clip is a zoom (zoompan, "on") held at its final framing from
+        // frame 90 on; the incoming one is a pan (crop, "n") clamped at its first
+        // framing while it fades in over the whole window after the cut.
+        Assert.Contains("((on+90)/89)", filterComplex);
+        Assert.Contains("((n-15)/89)", filterComplex);
         Assert.Contains("loop=loop=14:size=1:start=0", filterComplex);
         Assert.Contains("format=yuv420p", filterComplex);
         Assert.Contains("-frames:v", join.Arguments);

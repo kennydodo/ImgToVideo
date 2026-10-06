@@ -121,7 +121,12 @@ public class PreviewRenderServiceTests : IDisposable
                 segment.Arguments);
         }
 
-        var service = new PreviewRenderService(new FfmpegRunner());
+        // Same wiring the app and CLI use: the runner must execute with the
+        // ffmpeg whose path the plan's encoder resolution actually probed -
+        // otherwise a machine with a broken-hardware-encoder ffmpeg first in
+        // PATH runs a plan that was built for a different binary.
+        var service = new PreviewRenderService(
+            new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(options.Render)));
         var result = await service.RenderAsync(plan, maxParallelism: 2);
 
         Assert.True(result.Success, string.Join("\n", result.Errors));
@@ -196,7 +201,12 @@ public class PreviewRenderServiceTests : IDisposable
         var renderDirectory = System.IO.Path.Combine(_project.Path, "out", "render");
         var previewPath = System.IO.Path.Combine(_project.Path, "out", "preview.mp4");
         var plan = PreviewRenderPlanFactory.Build(timeline, images, options, renderDirectory, previewPath);
-        var service = new PreviewRenderService(new FfmpegRunner());
+        // Same wiring the app and CLI use: the runner must execute with the
+        // ffmpeg whose path the plan's encoder resolution actually probed -
+        // otherwise a machine with a broken-hardware-encoder ffmpeg first in
+        // PATH runs a plan that was built for a different binary.
+        var service = new PreviewRenderService(
+            new FfmpegRunner(PreviewRenderPlanFactory.ResolveEffectiveFfmpegPath(options.Render)));
 
         var first = await service.RenderAsync(plan, 2, null, default, reuseUnchangedSegments: true);
         Assert.True(first.Success, string.Join("\n", first.Errors));

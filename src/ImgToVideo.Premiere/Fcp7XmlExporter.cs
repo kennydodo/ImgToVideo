@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Xml.Linq;
 using ImgToVideo.Core.Models;
+using ImgToVideo.Core.Options;
+using ImgToVideo.Core.Planning;
 
 namespace ImgToVideo.Premiere;
 
@@ -14,9 +16,11 @@ public static class Fcp7XmlExporter
     public static string Export(
         Timeline timeline,
         IReadOnlyList<ImageInfo> images,
-        PremiereExportOptions? options = null)
+        PremiereExportOptions? options = null,
+        ProjectOptions? project = null)
     {
         options ??= new PremiereExportOptions();
+        project ??= new ProjectOptions();
 
         var dimensions = images.ToDictionary(i => i.FilePath, i => (Width: i.Width, Height: i.Height));
         var clips = timeline.Scenes.SelectMany(s => s.Clips).ToList();
@@ -29,67 +33,60 @@ public static class Fcp7XmlExporter
         var totalFrames = clips.Sum(c => c.DurationFrames);
         var audioFrames = timeline.Audio.DurationFrames > 0 ? timeline.Audio.DurationFrames : totalFrames;
 
-        // V1 carries every clip at its timeline position.
-        //
-        // Crossfades (Crossfade/Dissolve): a superimposed copy of the incoming
-        // clip on V2, trimmed to exactly its fade-in window — overlays never
-        // overlap each other on the track, so Premiere cannot trim one away
-        // (that collapsed later crossfades into cuts).
-        //
-        // Dips (FadeBlack/FadeWhite): sequential on V1, no overlays — the
-        // outgoing clip's tail fades to black and the incoming clip's head
-        // fades in from it. FadeWhite shares this path (dip through dark);
-        // a true white flash would need a matte layer.
+        // V1 carries every clip, V2 every fade window, laid out exactly like
+        // the ffmpeg render plan (TransitionCuts/PreviewRenderPlanFactory): a
+        // transition occupies [cue - tail, cue + head], the outgoing clip holds
+        // its final framing under it and the incoming clip's V1 item starts
+        // when its fade-in ends - so "Start at cut" means here what it means in
+        // the rendered video: nothing appears before its cue, where its pop
+        // sound lands. Crossfades blend the incoming copy over the held
+        // outgoing one; dips (FadeBlack/FadeWhite) fade the outgoing copy to
+        // black first, then fade the incoming copy in from black inside the
+        // same window. Overlays never overlap each other on V2, so Premiere
+        // cannot trim one away (that collapsed later crossfades into cuts).
         var baseItems = new List<XElement>();
         var overlayItems = new List<XElement>();
+        var cuts = TransitionCuts.Compute(clips, project);
 
         for (var index = 0; index < clips.Count; index++)
         {
             var clip = clips[index];
-            var duration = clip.DurationFrames;
 
-            // Opacity keyframes on the V1 base clip: a head fade when this clip
-            // arrives through a dip, a tail fade when the next join leaves
-            // through one. Crossfades never touch the base clip's opacity —
-            // their overlay handles the blend.
+            var headIn = index > 0 && cuts[index - 1].Frames > 0
+                ? TransitionCuts.HeadTrim(cuts[index - 1].Frames, project)
+                : 0L;
+            var hasNextCut = index < cuts.Length && cuts[index].Frames > 0;
+            var holdOut = hasNextCut ? TransitionCuts.HeadTrim(cuts[index].Frames, project) : 0L;
+
+            // A dip leaves through this clip's held extension: the copy fades
+            // to black over the first half of the window while the incoming
+            // copy fades in from black over the second half (on V2).
             var opacity = new List<(long When, double Value)>();
-            if (index > 0
-                && clip.Transition is { } incoming
-                && incoming.DurationFrames is { } inFrames && inFrames >= 2
-                && incoming.Kind is TransitionKind.FadeBlack or TransitionKind.FadeWhite)
+            if (hasNextCut && cuts[index].Kind is TransitionKind.FadeBlack or TransitionKind.FadeWhite)
             {
-                opacity.Add((0, 0.0));
-                opacity.Add((Math.Min(inFrames, duration), 100.0));
-            }
-
-            if (index + 1 < clips.Count
-                && clips[index + 1].Transition is { } outgoing
-                && outgoing.DurationFrames is { } outFrames && outFrames >= 2
-                && outgoing.Kind is TransitionKind.FadeBlack or TransitionKind.FadeWhite)
-            {
-                var tailStart = Math.Max(duration - outFrames, opacity.Count > 0 ? opacity[^1].When : 0);
-                if (opacity.Count == 0 || opacity[^1].When < tailStart)
-                {
-                    opacity.Add((tailStart, 100.0));
-                }
-
-                opacity.Add((duration, 0.0));
+                var cue = clip.DurationFrames - headIn;
+                opacity.Add((cue, 100.0));
+                opacity.Add((cue + Math.Max(1, cuts[index].Frames / 2), 0.0));
             }
 
             baseItems.Add(BuildVideoClipItem(
                 clip, dimensions, index, timebase, timeline.Resolution, options,
-                startOffset: 0, duration: duration, frozenMotion: false,
-                opacityRamp: opacity.Count > 0 ? opacity.ToArray() : null));
+                startOffset: headIn, duration: clip.DurationFrames - headIn + holdOut,
+                frozenMotion: false,
+                opacityRamp: opacity.Count > 0 ? opacity.ToArray() : null,
+                motionHeadFrames: headIn));
 
-            if (index > 0
-                && clip.Transition is { } fadeIn
-                && fadeIn.DurationFrames is { } fadeFrames && fadeFrames >= 2
-                && fadeIn.Kind is TransitionKind.Crossfade or TransitionKind.Dissolve)
+            if (index > 0 && cuts[index - 1].Frames > 0)
             {
+                var cutFrames = cuts[index - 1].Frames;
+                var halfWindow = Math.Max(1, cutFrames / 2);
+                var dip = cuts[index - 1].Kind is TransitionKind.FadeBlack or TransitionKind.FadeWhite;
+                var overlayWindow = cutFrames - (dip ? halfWindow : 0L);
                 overlayItems.Add(BuildVideoClipItem(
                     clip, dimensions, index, timebase, timeline.Resolution, options,
-                    startOffset: -fadeFrames, duration: fadeFrames, frozenMotion: true,
-                    opacityRamp: new[] { (0L, 0.0), (fadeFrames, 100.0) }));
+                    startOffset: -TransitionCuts.TailTrim(cutFrames, project) + (dip ? halfWindow : 0L),
+                    duration: overlayWindow, frozenMotion: true,
+                    opacityRamp: new[] { (0L, 0.0), (overlayWindow, 100.0) }));
             }
         }
 
@@ -157,7 +154,8 @@ public static class Fcp7XmlExporter
         long startOffset,
         long duration,
         bool frozenMotion,
-        (long When, double Value)[]? opacityRamp)
+        (long When, double Value)[]? opacityRamp,
+        long motionHeadFrames = 0)
     {
         var (sourceWidth, sourceHeight) = dimensions[clip.FilePath];
         var fileName = Path.GetFileName(clip.FilePath);
@@ -199,7 +197,7 @@ public static class Fcp7XmlExporter
         {
             clipItem.Add(new XElement("filter", BuildMotionFilter(
                 clip, sourceWidth, sourceHeight, resolution, idSuffix,
-                frozenMotion ? 1 : duration, timebase, frozenMotion)));
+                frozenMotion ? 1 : duration, timebase, frozenMotion, motionHeadFrames)));
         }
 
         if (opacityRamp is { } ramp)
@@ -218,11 +216,17 @@ public static class Fcp7XmlExporter
         string idSuffix,
         long duration,
         int timebase,
-        bool frozenMotion = false)
+        bool frozenMotion = false,
+        long motionHeadFrames = 0)
     {
-        double Progress(long f) => duration > 1
-            ? Eased(clip.Easing, f / (double)(duration - 1))
-            : 0.0;
+        // Progress is keyed to the clip's own nominal media window, offset by
+        // whatever head the preceding transition consumed - the item may be
+        // longer (holding the last framing under a following fade) or start
+        // past the media beginning (its head played inside that fade).
+        // Eased() clamps, so an extended copy sits on the final framing.
+        double Progress(long f) => frozenMotion || clip.DurationFrames <= 1
+            ? 0.0
+            : Eased(clip.Easing, (f + motionHeadFrames) / (double)(clip.DurationFrames - 1));
 
         double ViewportWidth(long f) =>
             clip.StartViewport.Width + (clip.EndViewport.Width - clip.StartViewport.Width) * Progress(f);

@@ -201,8 +201,8 @@ public static class ManifestPlanner
                 {
                     issues.Add(new ValidationIssue(
                         ValidationSeverity.Info, "MANIFEST_TIMING_FIXED",
-                        $"Narration pause of {gap / (double)fps:0.##}s before shot \"{shot.ShotId}\" " +
-                        "is held by the previous shot."));
+                        System.FormattableString.Invariant(
+                            $"Narration pause of {gap / (double)fps:0.##}s before shot \"{shot.ShotId}\" is held by the previous shot.")));
                 }
 
                 clips[^1].Clip.DurationFrames += gap;
@@ -225,8 +225,8 @@ public static class ManifestPlanner
                 issues.Add(new ValidationIssue(
                     Math.Abs(drift) <= 2 ? ValidationSeverity.Info : ValidationSeverity.Warning,
                     "MANIFEST_TIMING_FIXED",
-                    $"Manifest timeline ends {drift:+0;-0} frames off the audio duration " +
-                    $"({audioFrames / fps:F2}s); the last shot was {(drift > 0 ? "trimmed" : "extended")} to match."));
+                    System.FormattableString.Invariant(
+                        $"Manifest timeline ends {drift:+0;-0} frames off the audio duration ({audioFrames / fps:F2}s); the last shot was {(drift > 0 ? "trimmed" : "extended")} to match.")));
                 duration = Math.Max(1, audioFrames - start);
             }
 
@@ -304,9 +304,8 @@ public static class ManifestPlanner
             var shot = planned[i].Shot;
             issues.Add(new ValidationIssue(
                 ValidationSeverity.Info, "SHOT_TIMING",
-                $"Shot \"{shot.ShotId}\" ({clip.SceneId}) · cues {FormatCues(shot.SrtCueIds)} · " +
-                $"{FormatMs(clip.StartFrame * 1000.0 / fps)} → {FormatMs((clip.StartFrame + clip.DurationFrames) * 1000.0 / fps)} " +
-                $"({clip.DurationFrames / (double)fps:F1} s) · \"{TruncateNarration(shot.NarrationText)}\""));
+                System.FormattableString.Invariant(
+                    $"Shot \"{shot.ShotId}\" ({clip.SceneId}) · cues {FormatCues(shot.SrtCueIds)} · {FormatMs(clip.StartFrame * 1000.0 / fps)} → {FormatMs((clip.StartFrame + clip.DurationFrames) * 1000.0 / fps)} ({clip.DurationFrames / (double)fps:F1} s) · \"{TruncateNarration(shot.NarrationText)}\"")));
 
             // The LLM plans in cues and never computes seconds — long holds are how
             // lazy grouping shows up. Surface it deterministically so the COPY loop
@@ -846,9 +845,8 @@ public static class ManifestPlanner
                 {
                     issues.Add(new ValidationIssue(
                         ValidationSeverity.Warning, "MANIFEST_FOCAL_REFRAMED",
-                        $"Shot \"{shot.ShotId}\": focal region \"{region.Id}\" has aspect " +
-                        $"{aspect:F2} vs output {target:F2}; the viewport was re-framed to the largest " +
-                        "16:9 window inside the region."));
+                        System.FormattableString.Invariant(
+                            $"Shot \"{shot.ShotId}\": focal region \"{region.Id}\" has aspect {aspect:F2} vs output {target:F2}; the viewport was re-framed to the largest 16:9 window inside the region.")));
                 }
 
                 double newW, newH;

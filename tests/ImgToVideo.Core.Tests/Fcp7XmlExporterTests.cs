@@ -228,8 +228,8 @@ public class Fcp7XmlExporterTests
 
         var overlay = ClipItem(doc, "clipitem-2-x");
         Assert.Equal("S01_02_PR.png", overlay.Element("name")?.Value);
-        Assert.Equal("75", overlay.Element("start")?.Value); // 15 frames before the cut
-        Assert.Equal("90", overlay.Element("end")?.Value);   // trimmed to the fade window
+        Assert.Equal("90", overlay.Element("start")?.Value); // "Start at cut": begins at the cut
+        Assert.Equal("105", overlay.Element("end")?.Value);  // and runs through its whole window after it
         Assert.Equal("15", overlay.Element("out")?.Value);
 
         // Frozen motion: a single keyframe on the clip's first framing — V1
@@ -263,10 +263,13 @@ public class Fcp7XmlExporterTests
     }
 
     [Fact]
-    public void Dip_join_is_sequential_on_v1_without_overlays()
+    public void Dip_join_fades_to_black_and_back_inside_the_join_window()
     {
-        // A dip fades the outgoing tail to black and the incoming head in from
-        // it — sequential on V1, no overlay copies, no opacity on the wrong clip.
+        // "Start at cut": the join sits entirely after the cut. The V1 copy of
+        // the outgoing clip holds its final framing while fading to black over
+        // the first half of the window; the incoming copy fades in from black
+        // over the second half (V2 overlay) and its V1 item starts only once
+        // it is fully on - mirroring xfade's fadeblack phases.
         var (timeline, images) = Sample();
         timeline.Scenes[0].Clips[1].Transition = new TransitionIn
         {
@@ -278,19 +281,30 @@ public class Fcp7XmlExporterTests
         var videoClips = doc.Descendants("clipitem")
             .Where(c => c.Element("sourcetrack") is null)
             .ToList();
-        Assert.Equal(2, videoClips.Count);
+        Assert.Equal(3, videoClips.Count);
 
-        // Outgoing tail: 100 at frame 75 (90 - 15) -> 0 at the cut.
+        // Outgoing: the cut lands at its nominal frame 90 (item-relative), and
+        // it is faded out over the next 7 frames of its 105-frame held item.
         var outgoing = ScalarKeyframes(ClipItem(doc, "clipitem-1"), "opacity");
         Assert.Equal(2, outgoing.Length);
-        Assert.Equal(("75", "100"), outgoing[0]);
-        Assert.Equal(("90", "0"), outgoing[^1]);
+        Assert.Equal(("90", "100"), outgoing[0]);
+        Assert.Equal(("97", "0"), outgoing[^1]);
 
-        // Incoming head: 0 at its start -> 100 at frame 15.
-        var incoming = ScalarKeyframes(ClipItem(doc, "clipitem-2"), "opacity");
+        // Incoming copy fades in from black over the window's second half.
+        var overlay = ClipItem(doc, "clipitem-2-x");
+        Assert.Equal("97", overlay.Element("start")?.Value);
+        Assert.Equal("105", overlay.Element("end")?.Value);
+        var incoming = ScalarKeyframes(overlay, "opacity");
         Assert.Equal(2, incoming.Length);
         Assert.Equal(("0", "0"), incoming[0]);
-        Assert.Equal(("15", "100"), incoming[^1]);
+        Assert.Equal(("8", "100"), incoming[^1]);
+
+        // The V1 incoming item starts full, once its fade is over, and carries
+        // no opacity effect of its own.
+        var incomingBase = ClipItem(doc, "clipitem-2");
+        Assert.Equal("105", incomingBase.Element("start")?.Value);
+        Assert.DoesNotContain(incomingBase.Descendants("parameter"),
+            p => (string?)p.Element("parameterid") == "opacity");
     }
 
     [Fact]

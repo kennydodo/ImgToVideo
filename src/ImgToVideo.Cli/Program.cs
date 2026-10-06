@@ -271,7 +271,7 @@ if (command == "export-premiere")
     var xmlPath = Path.Combine(outDir, "premiere.xml");
     var xml = Fcp7XmlExporter.Export(
         planned.Timeline, images,
-        new PremiereExportOptions { IncludeMotionKeyframes = true });
+        new PremiereExportOptions { IncludeMotionKeyframes = true }, options);
     File.WriteAllText(xmlPath, xml);
     Console.WriteLine($"premiere xml: {xmlPath} — import it into Premiere (File > Import).");
     return 0;
