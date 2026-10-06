@@ -331,7 +331,7 @@ public partial class MainWindow : Window
             var xmlPath = Path.Combine(_projectFolder, "out", "premiere.xml");
             var xml = Fcp7XmlExporter.Export(
                 _planned!.Timeline!, _inventory.AllImages,
-                new PremiereExportOptions { IncludeMotionKeyframes = true });
+                new PremiereExportOptions { IncludeMotionKeyframes = true }, _options);
             File.WriteAllText(xmlPath, xml);
             ShowStatus($"Exported: {xmlPath} — import it into Premiere (File > Import).", StatusKind.Success);
         }

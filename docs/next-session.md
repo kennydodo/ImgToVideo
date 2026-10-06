@@ -2,6 +2,35 @@
 
 Shotlist workflow (LLM authors minimal cue→asset decisions), GroupBox scroll fix + COPY diagnostics implemented 2026-09-12. Build clean, 201 tests green.
 
+## 2026-10-06 - pop↔reveal timing: Late placement was inverted (built, full suite green)
+
+`dotnet test` now actually ran (dotnet 10 SDK): 324/324 green on `fix/reveal-pop-timing`.
+- **Root bug:** `TailTrim`/`HeadTrim` for `TransitionAlignment.Late` ("Start at cut") were
+  swapped - the whole fade ran at [cue-T, cue], so the incoming image arrived BEFORE its
+  narration and pop, against the September design note ("incoming image never appears before
+  its narration"). The join now occupies [cue, cue+T]: the outgoing clip holds its final
+  framing under it, the incoming head fades in starting exactly at the cue, and the pop (sfx
+  lands on the clip's StartFrame) hits at the same instant the motion begins. Measured on a
+  synthetic two-item reveal: fade starts 4.000 s, pop onset 4.000 s, fully on 4.267 s.
+- The guard loop in `PreviewRenderPlanFactory` had the same swap (prev-cut tail vs head). The
+  cut/trim math now lives once in `Core/Planning/TransitionCuts.cs`, shared by the ffmpeg plan
+  and the Premiere exporter. `Fcp7XmlExporter` mirrors the new placement (V1: outgoing clip
+  extended, incoming shifted to where its fade ends; V2 fade window after the cut; dips fade
+  to black and back inside the window), with motion keyframes clamped over the head offset.
+  The Transitions/Join/Dip/Crossfade test expectations were retargeted to the new (measured)
+  output.
+- **Test runner wiring:** `PreviewRenderServiceTests` ran `new FfmpegRunner()` (PATH ffmpeg)
+  against a plan built with `ResolveEffectiveFfmpegPath` - on this machine the PATH build
+  cannot init nvenc (driver 13.0 vs required 13.1) while a legacy build under C:\tools can, so
+  both e2e tests died mid-render with exit -40. The runner is now wired like the app/CLI.
+- **Culture-dependent report strings:** MANIFEST_TIMING_FIXED / SHOT_TIMING / FOCAL messages
+  are `FormattableString.Invariant` (a comma-decimal locale printed "pause of 0,6s" and broke
+  the Narration-pause test).
+- The "not built or run" claims of 647aaa9/650d85f/5328b8b are now verified: QSV preset
+  mapping, pop-catalog and SoundAndSettingsOptions tests all pass.
+- Not verified (no Premiere here): the new dip/crossfade XML keyframe layout on import - the
+  geometry mirrors the render plan, but the serialization deserves an eyeball on first import.
+
 ## 2026-10-06 - FIXED (unbuilt, untested): the 6 failing tests + QSV preset + Settings save bug
 
 `feat/per-shot-aspect-ratio` was already merged into master, so this is on master. Not run: no dotnet in the authoring sandbox - run `dotnet test` and report.

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using ImgToVideo.Core.Models;
 using ImgToVideo.Core.Options;
+using ImgToVideo.Core.Planning;
 
 namespace ImgToVideo.Ffmpeg;
 
@@ -36,7 +37,7 @@ public static class PreviewRenderPlanFactory
         var dimensions = images.ToDictionary(i => i.FilePath, i => (i.Width, i.Height));
         Directory.CreateDirectory(outputDirectory);
 
-        var cuts = ComputeTransitionCuts(clips, options);
+        var cuts = TransitionCuts.Compute(clips, options);
         var segments = new List<SegmentCommand>();
         long totalFrames = 0;
         long joinCount = 0;
@@ -52,8 +53,8 @@ public static class PreviewRenderPlanFactory
 
             var (cutInFrames, _) = i > 0 ? cuts[i - 1] : (0L, TransitionKind.None);
             var (cutOutFrames, cutOutKind) = i < cuts.Length ? cuts[i] : (0L, TransitionKind.None);
-            var pieceStart = HeadTrim(cutInFrames, options);
-            var pieceEnd = clip.DurationFrames - TailTrim(cutOutFrames, options);
+            var pieceStart = TransitionCuts.HeadTrim(cutInFrames, options);
+            var pieceEnd = clip.DurationFrames - TransitionCuts.TailTrim(cutOutFrames, options);
             var pieceCount = pieceEnd - pieceStart;
 
             var segmentPath = Path.Combine(outputDirectory, $"seg_{i + 1:D4}.mp4");
@@ -101,65 +102,13 @@ public static class PreviewRenderPlanFactory
             TotalFrames: totalFrames);
     }
 
-    private static (long Frames, TransitionKind Kind)[] ComputeTransitionCuts(
-        IReadOnlyList<VideoClip> clips, ProjectOptions options)
-    {
-        var cuts = new (long Frames, TransitionKind Kind)[Math.Max(0, clips.Count - 1)];
-
-        for (var c = 0; c < cuts.Length; c++)
-        {
-            var transition = clips[c + 1].Transition;
-            if (transition is not { Kind: not TransitionKind.None, DurationFrames: >= 2 })
-            {
-                continue;
-            }
-
-            var tail = TailTrim(transition.DurationFrames, options);
-            var head = HeadTrim(transition.DurationFrames, options);
-            if (clips[c].DurationFrames - tail < 1 || clips[c + 1].DurationFrames - head < 1)
-            {
-                continue;
-            }
-
-            cuts[c] = (transition.DurationFrames, transition.Kind);
-        }
-
-        for (var i = 0; i < clips.Count; i++)
-        {
-            var trim = (i > 0 ? TailTrim(cuts[i - 1].Frames, options) : 0) +
-                       (i < cuts.Length ? HeadTrim(cuts[i].Frames, options) : 0);
-            if (clips[i].DurationFrames - trim < 1)
-            {
-                if (i > 0)
-                {
-                    cuts[i - 1] = (0, TransitionKind.None);
-                }
-
-                if (i < cuts.Length)
-                {
-                    cuts[i] = (0, TransitionKind.None);
-                }
-            }
-        }
-
-        return cuts;
-    }
-
-    private static long TailTrim(long transitionFrames, ProjectOptions options) =>
-        options.Transitions.Alignment == TransitionAlignment.Late
-            ? transitionFrames
-            : transitionFrames / 2;
-
-    private static long HeadTrim(long transitionFrames, ProjectOptions options) =>
-        options.Transitions.Alignment == TransitionAlignment.Late
-            ? 0
-            : (transitionFrames + 1) / 2;
-
+    // The trim math lives in one place (ImgToVideo.Core.Planning.TransitionCuts)
+    // so the ffmpeg plan and the Premiere exporter cannot drift.
     public static long TailTrimFrames(long transitionFrames, ProjectOptions options) =>
-        TailTrim(transitionFrames, options);
+        TransitionCuts.TailTrim(transitionFrames, options);
 
     public static long HeadTrimFrames(long transitionFrames, ProjectOptions options) =>
-        HeadTrim(transitionFrames, options);
+        TransitionCuts.HeadTrim(transitionFrames, options);
 
     public static IReadOnlyList<string> BuildClipPreviewArguments(
         VideoClip clip, int sourceWidth, int sourceHeight, ProjectOptions options, string outputPath) =>
@@ -219,14 +168,14 @@ public static class PreviewRenderPlanFactory
         VideoClip incoming, int incomingWidth, int incomingHeight,
         long transitionFrames, TransitionKind kind, ProjectOptions options, string outputPath)
     {
-        var outTail = TailTrim(transitionFrames, options);
+        var outTail = TransitionCuts.TailTrim(transitionFrames, options);
 
         var outgoingChain = BuildSideChain(
             outgoing, outgoingWidth, outgoingHeight,
             pieceStart: outgoing.DurationFrames - outTail, pieceCount: transitionFrames, options);
         var incomingChain = BuildSideChain(
             incoming, incomingWidth, incomingHeight,
-            pieceStart: -HeadTrim(transitionFrames, options), pieceCount: transitionFrames, options);
+            pieceStart: -TransitionCuts.HeadTrim(transitionFrames, options), pieceCount: transitionFrames, options);
 
         var filterComplex =
             $"[0:v]{outgoingChain}[va];[1:v]{incomingChain}[vb];" +
