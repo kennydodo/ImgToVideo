@@ -169,13 +169,22 @@ public static class PreviewRenderPlanFactory
         long transitionFrames, TransitionKind kind, ProjectOptions options, string outputPath)
     {
         var outTail = TransitionCuts.TailTrim(transitionFrames, options);
+        var inHead = TransitionCuts.HeadTrim(transitionFrames, options);
 
         var outgoingChain = BuildSideChain(
             outgoing, outgoingWidth, outgoingHeight,
             pieceStart: outgoing.DurationFrames - outTail, pieceCount: transitionFrames, options);
+        // The incoming clip's transition window carries its OWN first frames, so
+        // its motion runs continuously into the body segment (which starts at
+        // frame inHead). Offsetting by (inHead - transitionFrames) lands the last
+        // fade frame on inHead-1 and the body's first frame on inHead with no
+        // seam. Freezing it at frame 0 instead (the old -inHead) made the body
+        // snap from position(0) to position(inHead) at the cut - invisible on a
+        // static clip and barely visible on a slow zoom, but a hard one-frame jump
+        // at the start of every pan (PU/PD/PL/PR) that reads as jitter.
         var incomingChain = BuildSideChain(
             incoming, incomingWidth, incomingHeight,
-            pieceStart: -TransitionCuts.HeadTrim(transitionFrames, options), pieceCount: transitionFrames, options);
+            pieceStart: inHead - transitionFrames, pieceCount: transitionFrames, options);
 
         var filterComplex =
             $"[0:v]{outgoingChain}[va];[1:v]{incomingChain}[vb];" +

@@ -149,14 +149,45 @@ public class PreviewRenderPlanFactoryTests : IDisposable
         Assert.Contains("[va]", filterComplex);
         Assert.Contains("[vb]", filterComplex);
         // Outgoing clip is a zoom (zoompan, "on") held at its final framing from
-        // frame 90 on; the incoming one is a pan (crop, "n") clamped at its first
-        // framing while it fades in over the whole window after the cut.
+        // frame 90 on; the incoming one is a pan (crop, "n") that runs its own
+        // first frames during the fade (pieceStart = inHead - transitionFrames = 0
+        // for Late), so it continues seamlessly into the body instead of freezing
+        // at frame 0 and snapping at the cut (the old pan jitter).
         Assert.Contains("((on+90)/89)", filterComplex);
-        Assert.Contains("((n-15)/89)", filterComplex);
+        Assert.Contains("((n+0)/89)", filterComplex);
         Assert.Contains("loop=loop=14:size=1:start=0", filterComplex);
         Assert.Contains("format=yuv420p", filterComplex);
         Assert.Contains("-frames:v", join.Arguments);
         Assert.Contains("15", join.Arguments);
+    }
+
+    [Fact]
+    public void Join_incoming_pan_continues_without_a_position_jump()
+    {
+        // Regression: the incoming side of a Late crossfade used to freeze the
+        // clip at frame 0 for the whole fade, so the body then snapped from
+        // position(0) to position(transitionFrames) - a visible one-frame jump at
+        // the start of every pan. The fade must carry the clip's own first frames
+        // so its last fade frame (index transitionFrames-1) meets the body's first
+        // frame (index transitionFrames) with no seam.
+        var (timeline, images) = SampleTimeline();
+        timeline.Scenes[0].Clips[1].Transition = new TransitionIn
+        {
+            Kind = TransitionKind.Crossfade,
+            DurationFrames = 15,
+        };
+        var previewPath = System.IO.Path.Combine(_project.Path, "out", "preview.mp4");
+        var plan = PreviewRenderPlanFactory.Build(timeline, images, Options(), _outputDirectory, previewPath);
+
+        // Segments: [body of clip0, join, body of clip1]. The pan is clip1.
+        var joinComplex = ArgumentAfter(plan.Segments[1].Arguments, "-filter_complex");
+        var bodyOfPan = ArgumentAfter(plan.Segments[2].Arguments, "-vf");
+
+        // Incoming fade advances from n+0; the body continues from n+15. The two
+        // are consecutive (fade's last frame n=14 -> index 14, body's first frame
+        // n=0 -> index 15), so the pan never jumps.
+        Assert.Contains("((n+0)/89)", joinComplex);
+        Assert.Contains("((n+15)/89)", bodyOfPan);
     }
 
     [Fact]
